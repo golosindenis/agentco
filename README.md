@@ -49,9 +49,19 @@ npm run seed
 npm run worker              # drains every due task, then exits. Run from cron.
 npm run worker -- --dry-run # same, but writes to the *_dryrun tables. Nothing real.
 npm run review              # walk the pending drafts: approve, edit, or decline
+npm run drafts               # list every approved draft waiting to be posted
+npm run drafts -- --posted <shortid> # mark one posted, once you've pasted it in
 ```
 
 The worker is not a daemon. It drains what is due and exits.
+
+**Nothing in this system publishes.** `npm run review` only decides what is
+good; it never sends anything anywhere. An approved draft sits in Postgres
+until Denis reads it back out with `npm run drafts`, pastes it into
+Instagram (or wherever) by hand, and marks it posted with
+`npm run drafts -- --posted <shortid>`. That is deliberate, not a missing
+feature — this system has no credentials for any platform it could post to,
+and no code path that would use them.
 
 ## Schedule
 
@@ -159,7 +169,7 @@ autonomous action.
 ## Tests
 
 ```bash
-npm test          # 106 tests
+npm test          # 121 tests
 npm run typecheck
 ```
 
@@ -175,10 +185,12 @@ which those tests silently skip forever even when credentials are present.
 | File | Responsibility |
 |---|---|
 | `supabase/migrations/0001_init.sql` | Schema, `claim_next_task()`, RLS |
+| `supabase/migrations/0002_posted_at.sql` | Adds `drafts.posted_at`, so an approved draft can be read back and retired. |
 | `src/types.ts` | Shared types. No logic. |
 | `src/ladder.ts` | Pure. Verdict → new level/streak/history. |
 | `src/capacity.ts` | Pure. Pending count → may this agent produce? |
 | `src/output.ts` | Pure. Is this run's output usable? |
+| `src/drafts.ts` | Pure. Short id ↔ full id, for `scripts/drafts.ts`. |
 | `src/db.ts` | Every query. The only file that touches the network. |
 | `src/runner.ts` | Spawns the headless agent. Timeout, output cap, kill escalation. |
 | `src/worker.ts` | The loop that ties it together. |
@@ -188,6 +200,7 @@ which those tests silently skip forever even when credentials are present.
 | `src/schedule.ts` | Pure. Calendar day → which tasks are due. |
 | `scripts/schedule.ts` | Queues today's due tasks idempotently. |
 | `scripts/costs.ts` | Pure report builder + `npm run costs` — reads `events`, prints cost/usage. |
+| `scripts/drafts.ts` | `npm run drafts` — read back and retire approved drafts. The last mile: this system never publishes for you. |
 | `scripts/daily.sh` | What `launchd` runs: schedule, then worker, logged. |
 | `launchd/com.denis.agentco.daily.plist` | The 07:00 LaunchAgent. See "Schedule". |
 

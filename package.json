@@ -13,7 +13,8 @@
     "schedule": "tsx scripts/schedule.ts",
     "review": "tsx src/cli.ts",
     "seed": "tsx src/seed.ts",
-    "costs": "tsx scripts/costs.ts"
+    "costs": "tsx scripts/costs.ts",
+    "drafts": "tsx scripts/drafts.ts"
   },
   "keywords": [],
   "author": "",

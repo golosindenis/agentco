@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
+import { POSTABLE_KINDS } from "./types.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -127,6 +128,55 @@ export async function latestBrief(): Promise<{ body: string; created_at: string 
     .limit(1);
   if (error) throw new Error(`latestBrief failed: ${error.message}`);
   return data?.[0] ?? null;
+}
+
+/**
+ * Approved drafts Denis has not yet posted by hand, oldest first — so the
+ * queue drains in the order it was written, the way a to-do list should.
+ * Nothing in this system publishes (see the README): this is the read side
+ * of the last mile, letting `scripts/drafts.ts` show Denis the text he
+ * approved so he can paste it somewhere himself.
+ *
+ * Restricted to `POSTABLE_KINDS`: an approved draft's task kind must be one
+ * Denis actually posts. Without this, a weekly_angles draft — approved only
+ * so the Writer can read it as input, never something Denis pastes anywhere
+ * — would sit in this queue forever, since it is approved and never gets a
+ * `posted_at`. `drafts.task_id` is a single (to-one) FK to tasks, so this
+ * filter is the same embedded-select join `latestApprovedDraftBody` above
+ * uses — `tasks!inner(kind)` — combined here with the existing
+ * `agents(display_name)` join (`drafts.agent_id` is also to-one) in one
+ * round trip.
+ */
+export async function approvedUnpostedDrafts(): Promise<
+  { id: string; agent: string; body: string; createdAt: string }[]
+> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("id, body, created_at, agents(display_name), tasks!inner(kind)")
+    .eq("status", "approved")
+    .is("posted_at", null)
+    .in("tasks.kind", POSTABLE_KINDS)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`approvedUnpostedDrafts failed: ${error.message}`);
+
+  return ((data ?? []) as unknown as
+    { id: string; body: string; created_at: string; agents: { display_name: string } | null }[]
+  ).map((row) => ({
+    id: row.id,
+    agent: row.agents?.display_name ?? "unknown",
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+/** Marks a draft posted — Denis pasted it somewhere himself and it should
+ * drop out of `approvedUnpostedDrafts`'s queue. */
+export async function markPosted(draftId: string): Promise<void> {
+  const { error } = await supabase
+    .from("drafts")
+    .update({ posted_at: new Date().toISOString() })
+    .eq("id", draftId);
+  if (error) throw new Error(`markPosted failed: ${error.message}`);
 }
 
 export async function finishTask(
