@@ -117,8 +117,10 @@ export function runAgent(
     });
     child.on("error", (e) =>
       finish({ ok: false, reason: `could not spawn ${command}: ${e.message}` }));
-    child.stdin.on("error", (e) =>
-      finish({ ok: false, reason: `${command} stdin error: ${e.message}` }));
+    child.stdin.on("error", (e) => {
+      killChild(child);
+      finish({ ok: false, reason: `${command} stdin error: ${e.message}` });
+    });
     child.on("close", (code) =>
       finish(interpretRun(code ?? 1, stdout, stderr)));
 
