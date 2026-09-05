@@ -129,6 +129,48 @@ export async function latestBrief(): Promise<{ body: string; created_at: string 
   return data?.[0] ?? null;
 }
 
+/**
+ * Approved drafts Denis has not yet posted by hand, oldest first — so the
+ * queue drains in the order it was written, the way a to-do list should.
+ * Nothing in this system publishes (see the README): this is the read side
+ * of the last mile, letting `scripts/drafts.ts` show Denis the text he
+ * approved so he can paste it somewhere himself.
+ *
+ * `drafts.agent_id` is a single (to-one) FK to agents, so — like
+ * `latestApprovedDraftBody` above — this is one embedded select
+ * (`agents(display_name)`) rather than a second round trip per draft.
+ */
+export async function approvedUnpostedDrafts(): Promise<
+  { id: string; agent: string; body: string; createdAt: string }[]
+> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("id, body, created_at, agents(display_name)")
+    .eq("status", "approved")
+    .is("posted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`approvedUnpostedDrafts failed: ${error.message}`);
+
+  return ((data ?? []) as unknown as
+    { id: string; body: string; created_at: string; agents: { display_name: string } | null }[]
+  ).map((row) => ({
+    id: row.id,
+    agent: row.agents?.display_name ?? "unknown",
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+/** Marks a draft posted — Denis pasted it somewhere himself and it should
+ * drop out of `approvedUnpostedDrafts`'s queue. */
+export async function markPosted(draftId: string): Promise<void> {
+  const { error } = await supabase
+    .from("drafts")
+    .update({ posted_at: new Date().toISOString() })
+    .eq("id", draftId);
+  if (error) throw new Error(`markPosted failed: ${error.message}`);
+}
+
 export async function finishTask(
   id: string, state: "done" | "failed", error?: string,
 ): Promise<void> {

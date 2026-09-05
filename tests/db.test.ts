@@ -19,13 +19,18 @@ let insertDraft: typeof import("../src/db.js")["insertDraft"];
 let finishTask: typeof import("../src/db.js")["finishTask"];
 let latestDraftBody: typeof import("../src/db.js")["latestDraftBody"];
 let latestApprovedDraftBody: typeof import("../src/db.js")["latestApprovedDraftBody"];
+let approvedUnpostedDrafts: typeof import("../src/db.js")["approvedUnpostedDrafts"];
+let markPosted: typeof import("../src/db.js")["markPosted"];
 
 let agentId: string;
 
 describe.skipIf(!hasCredentials)("db", () => {
   beforeAll(async () => {
     const db = await import("../src/db.js");
-    ({ supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask, latestDraftBody, latestApprovedDraftBody } = db);
+    ({
+      supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask,
+      latestDraftBody, latestApprovedDraftBody, approvedUnpostedDrafts, markPosted,
+    } = db);
 
     const { data, error } = await supabase
       .from("agents")
@@ -130,6 +135,50 @@ describe.skipIf(!hasCredentials)("db", () => {
         .insert({ task_id: angles2!.id, agent_id: agentId, body: "1. Newer angle bank.", status: "approved" });
 
       expect(await latestApprovedDraftBody("weekly_angles")).toContain("Newer angle bank");
+    });
+  });
+
+  describe("approvedUnpostedDrafts / markPosted", () => {
+    // approvedUnpostedDrafts queries the whole database, not just this suite's
+    // own agent (like latestApprovedDraftBody above), so this asserts our
+    // draft is present/absent by id rather than asserting on the list's
+    // length or contents overall.
+
+    it("lists an approved draft with no posted_at, then drops it once markPosted runs", async () => {
+      const { data: t } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      const { data: draft } = await supabase.from("drafts")
+        .insert({
+          task_id: t!.id, agent_id: agentId,
+          body: "An approved, unposted draft body.", status: "approved",
+        })
+        .select().single();
+
+      const before = await approvedUnpostedDrafts();
+      const found = before.find((d) => d.id === draft!.id);
+      expect(found).toBeDefined();
+      expect(found!.body).toBe("An approved, unposted draft body.");
+      expect(found!.agent).toBe("Test");
+
+      await markPosted(draft!.id);
+
+      const after = await approvedUnpostedDrafts();
+      expect(after.some((d) => d.id === draft!.id)).toBe(false);
+    });
+
+    it("never lists a pending or declined draft", async () => {
+      const { data: t } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      const { data: pending } = await supabase.from("drafts")
+        .insert({ task_id: t!.id, agent_id: agentId, body: "Still pending.", status: "pending" })
+        .select().single();
+      const { data: declined } = await supabase.from("drafts")
+        .insert({ task_id: t!.id, agent_id: agentId, body: "Declined body.", status: "declined" })
+        .select().single();
+
+      const drafts = await approvedUnpostedDrafts();
+      expect(drafts.some((d) => d.id === pending!.id)).toBe(false);
+      expect(drafts.some((d) => d.id === declined!.id)).toBe(false);
     });
   });
 });
