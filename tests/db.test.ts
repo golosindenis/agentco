@@ -18,13 +18,14 @@ let countPendingDrafts: typeof import("../src/db.js")["countPendingDrafts"];
 let insertDraft: typeof import("../src/db.js")["insertDraft"];
 let finishTask: typeof import("../src/db.js")["finishTask"];
 let latestDraftBody: typeof import("../src/db.js")["latestDraftBody"];
+let latestApprovedDraftBody: typeof import("../src/db.js")["latestApprovedDraftBody"];
 
 let agentId: string;
 
 describe.skipIf(!hasCredentials)("db", () => {
   beforeAll(async () => {
     const db = await import("../src/db.js");
-    ({ supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask, latestDraftBody } = db);
+    ({ supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask, latestDraftBody, latestApprovedDraftBody } = db);
 
     const { data, error } = await supabase
       .from("agents")
@@ -92,6 +93,36 @@ describe.skipIf(!hasCredentials)("db", () => {
       const { count } = await supabase.from("drafts_dryrun")
         .select("id", { count: "exact", head: true }).eq("agent_id", agentId);
       expect(count).toBe(1);
+    });
+  });
+
+  describe("latestApprovedDraftBody", () => {
+    it("returns null when no draft of that kind has been approved", async () => {
+      expect(await latestApprovedDraftBody("weekly_angles")).toBeNull();
+    });
+
+    it("returns the newest approved draft body for the given task kind, ignoring other kinds and statuses", async () => {
+      const { data: angles } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "weekly_angles" }).select().single();
+      const { data: draft } = await supabase.from("drafts")
+        .insert({ task_id: angles!.id, agent_id: agentId, body: "1. First angle bank.", status: "pending" })
+        .select().single();
+      await supabase.from("drafts").update({ status: "approved" }).eq("id", draft!.id);
+
+      // A daily_draft task's own draft must never satisfy a weekly_angles lookup.
+      const { data: daily } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      await supabase.from("drafts")
+        .insert({ task_id: daily!.id, agent_id: agentId, body: "An approved daily post.", status: "approved" });
+
+      expect(await latestApprovedDraftBody("weekly_angles")).toContain("First angle bank");
+
+      const { data: angles2 } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "weekly_angles" }).select().single();
+      await supabase.from("drafts")
+        .insert({ task_id: angles2!.id, agent_id: agentId, body: "1. Newer angle bank.", status: "approved" });
+
+      expect(await latestApprovedDraftBody("weekly_angles")).toContain("Newer angle bank");
     });
   });
 });

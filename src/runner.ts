@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { tmpdir } from "node:os";
 import type { AgentRow } from "./types.js";
 
 export type RunResult =
@@ -16,6 +17,50 @@ export type RunResult =
  */
 export function buildArgs(agent: Pick<AgentRow, "turn_cap">): string[] {
   return ["--print", "--max-turns", String(agent.turn_cap)];
+}
+
+/**
+ * Names/prefixes let through to the spawned `claude` child process.
+ *
+ * This is an allowlist, not a denylist of known-sensitive names, on purpose:
+ * a variable added to process.env later (by us, by a dependency, by
+ * dotenv/config) is excluded by default instead of leaking by default.
+ * Without this, `spawn` would inherit all of `process.env` — including
+ * SUPABASE_SERVICE_ROLE_KEY, loaded by src/db.ts's `dotenv/config` — and
+ * hand a production database key to a child process running an arbitrary
+ * agent prompt.
+ */
+const ENV_ALLOWLIST_KEYS = ["PATH", "HOME", "USER", "SHELL", "TERM", "LANG"];
+const ENV_ALLOWLIST_PREFIXES = ["ANTHROPIC_", "CLAUDE_"];
+
+/**
+ * Builds the environment for the spawned `claude` child from an allowlist,
+ * rather than inheriting the parent's `process.env` wholesale.
+ *
+ * HOME stays on the allowlist deliberately, even though it is also how the
+ * child inherits the user's global Claude config, plugins, and every
+ * configured MCP server (Supabase, GitHub, Vercel, computer use, ...): the
+ * agent's skills live under HOME too, and dropping it would break skill
+ * loading entirely. That trade-off is accepted here, not eliminated —
+ * restricting which MCP servers/tools the spawned CLI can use needs
+ * CLI flags verified against the installed `claude` binary, which is
+ * separate, not-yet-done work.
+ */
+export function buildChildEnv(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ENV_ALLOWLIST_KEYS) {
+    const value = source[key];
+    if (value !== undefined) env[key] = value;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    if (ENV_ALLOWLIST_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export const RUN_TIMEOUT_MS = 600_000; // 10 minutes
@@ -76,6 +121,10 @@ export function runAgent(
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
+      // Cron's cwd may be the repo root, where .env lives — don't start the
+      // child there. tmpdir() keeps it out of the repo entirely.
+      cwd: tmpdir(),
+      env: buildChildEnv(),
     });
 
     let settled = false;

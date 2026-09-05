@@ -23,6 +23,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 import {
   buildArgs,
+  buildChildEnv,
   interpretRun,
   runAgent,
   killChild,
@@ -221,6 +222,29 @@ describe("runAgent process handling", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("could not spawn");
     expect(resolutions.length).toBe(1);
+  });
+});
+
+describe("buildChildEnv", () => {
+  it("keeps PATH and HOME from the source environment", () => {
+    const env = buildChildEnv({ PATH: "/usr/bin", HOME: "/Users/test" });
+    expect(env.PATH).toBe("/usr/bin");
+    expect(env.HOME).toBe("/Users/test");
+  });
+
+  it("excludes SUPABASE_SERVICE_ROLE_KEY and SUPABASE_URL even when set", () => {
+    const env = buildChildEnv({
+      PATH: "/usr/bin",
+      SUPABASE_SERVICE_ROLE_KEY: "secret-key",
+      SUPABASE_URL: "https://example.supabase.co",
+    });
+    expect(env.SUPABASE_SERVICE_ROLE_KEY).toBeUndefined();
+    expect(env.SUPABASE_URL).toBeUndefined();
+  });
+
+  it("excludes an unrelated variable that is not on the allowlist", () => {
+    const env = buildChildEnv({ PATH: "/usr/bin", SOME_RANDOM_VAR: "value" });
+    expect(env.SOME_RANDOM_VAR).toBeUndefined();
   });
 });
 

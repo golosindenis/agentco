@@ -7,9 +7,11 @@ export const TASK_PROMPTS: Record<TaskKind, string> = {
     "this business could publish. Output the angles as a numbered list and " +
     "nothing else.",
   daily_draft:
-    "Write one post from the approved angle bank. Match the voice rules in " +
-    "your instructions exactly. Output only the post text, with no preamble, " +
-    "no options and no commentary.",
+    "Pick exactly one angle from the approved angle bank included below this " +
+    "prompt, under the heading 'Approved angle bank', and write one post from " +
+    "it. Do not invent an angle of your own and do not write about more than " +
+    "one angle. Match the voice rules in your instructions exactly. Output " +
+    "only the post text, with no preamble, no options and no commentary.",
   brief:
     "Write this morning's brief: what ran overnight, what is waiting on Denis, " +
     "and what failed. If nothing ran, say so explicitly rather than returning " +

@@ -1,18 +1,19 @@
 import { canProduce } from "./capacity.js";
 import { assertUsableOutput } from "./output.js";
 import { TASK_PROMPTS } from "./prompts.js";
-import type { AgentRow, TaskRow } from "./types.js";
+import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
 
 export type WorkerOutcome =
-  | "idle" | "produced" | "skipped_at_capacity" | "failed";
+  | "idle" | "produced" | "skipped_at_capacity" | "skipped_disabled" | "failed";
 
 export type WorkerDeps = {
   claimNextTask: () => Promise<TaskRow | null>;
   getAgent: (id: string) => Promise<AgentRow>;
   countPendingDrafts: (agentId: string) => Promise<number>;
   latestDraftBody: (agentId: string) => Promise<string | null>;
+  latestApprovedDraftBody: (kind: TaskKind) => Promise<string | null>;
   insertDraft: (taskId: string, agentId: string, body: string, dryRun: boolean) => Promise<void>;
   finishTask: (id: string, state: "done" | "failed", error?: string) => Promise<void>;
   logEvent: (kind: string, detail: Record<string, unknown>, agentId?: string, taskId?: string) => Promise<void>;
@@ -33,6 +34,7 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
     getAgent: db.getAgent,
     countPendingDrafts: db.countPendingDrafts,
     latestDraftBody: db.latestDraftBody,
+    latestApprovedDraftBody: db.latestApprovedDraftBody,
     insertDraft: db.insertDraft,
     finishTask: db.finishTask,
     logEvent: db.logEvent,
@@ -62,6 +64,16 @@ export async function processOne(
   try {
     const agent = await deps.getAgent(task.agent_id);
 
+    if (!agent.enabled) {
+      // enabled is the kill switch: with no check here, disabling an agent
+      // in the schema does nothing at all — the worker keeps claiming its
+      // tasks and keeps spawning `claude` for it. The task itself did
+      // nothing wrong, so it's finished "done" rather than "failed".
+      await deps.logEvent("skipped_disabled", {}, agent.id, task.id);
+      await deps.finishTask(task.id, "done");
+      return "skipped_disabled";
+    }
+
     const pending = await deps.countPendingDrafts(agent.id);
     if (!canProduce(pending)) {
       // A capacity skip marks the task "done", not "failed" or requeued. These
@@ -74,7 +86,25 @@ export async function processOne(
       return "skipped_at_capacity";
     }
 
-    const run = await deps.runAgent(agent, TASK_PROMPTS[task.kind]);
+    let taskPrompt = TASK_PROMPTS[task.kind];
+    if (task.kind === "daily_draft") {
+      // The Writer's whole prompt is agent.instructions + "---" + taskPrompt
+      // (see runAgent) — nothing else reaches the model. Without the actual
+      // approved angle bank appended here, the Writer just invents its own
+      // angle every run, making the Strategist/approval step in front of it
+      // pointless. A missing angle bank is a real condition to surface, not
+      // something to paper over with a generic post.
+      const angleBank = await deps.latestApprovedDraftBody("weekly_angles");
+      if (angleBank === null) {
+        const reason = "no approved weekly_angles draft for the Writer to draw from";
+        await deps.logEvent("no_angle_bank", { reason }, agent.id, task.id);
+        await deps.finishTask(task.id, "failed", reason);
+        return "failed";
+      }
+      taskPrompt = `${taskPrompt}\n\n## Approved angle bank\n\n${angleBank}`;
+    }
+
+    const run = await deps.runAgent(agent, taskPrompt);
     if (!run.ok) {
       await deps.logEvent("run_failed", { reason: run.reason }, agent.id, task.id);
       await deps.finishTask(task.id, "failed", run.reason);

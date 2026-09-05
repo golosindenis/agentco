@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
-import type { AgentRow, TaskRow } from "./types.js";
+import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,6 +47,27 @@ export async function latestDraftBody(agentId: string): Promise<string | null> {
     .order("created_at", { ascending: false })
     .limit(1);
   if (error) throw new Error(`latestDraftBody failed: ${error.message}`);
+  return data?.[0]?.body ?? null;
+}
+
+/**
+ * The body of the most recently created draft whose task has the given kind
+ * and whose status is 'approved', or null if there is none.
+ *
+ * drafts.task_id is a single (to-one) FK to tasks, so this is written as one
+ * embedded select — `tasks!inner(kind)` — rather than a two-step query: the
+ * `!inner` makes it an inner join, so filtering on the embedded `tasks.kind`
+ * column also filters which `drafts` rows come back, in one round trip.
+ */
+export async function latestApprovedDraftBody(kind: TaskKind): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("body, tasks!inner(kind)")
+    .eq("tasks.kind", kind)
+    .eq("status", "approved")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`latestApprovedDraftBody failed: ${error.message}`);
   return data?.[0]?.body ?? null;
 }
 

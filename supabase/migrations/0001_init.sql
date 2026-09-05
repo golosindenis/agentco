@@ -82,6 +82,11 @@ begin
     from tasks
    where state = 'queued'
      and due_at <= now()
+     and exists (
+       select 1 from agents
+        where agents.id = tasks.agent_id
+          and agents.enabled
+     )
    order by due_at
    for update skip locked
    limit 1;
@@ -96,3 +101,24 @@ begin
      where id = picked
     returning *;
 end $$;
+
+-- Supabase grants anon/authenticated full access to public tables and
+-- execute on public functions by default. The anon key is public by design
+-- (it ships in the planned dashboard bundle), so without the below, anyone
+-- with the project URL could read every draft, rewrite any agent's
+-- instructions, or drain the task queue.
+--
+-- RLS is turned on below with NO policies attached, on purpose. The service
+-- role (used by the worker and the review CLI) bypasses RLS entirely, so
+-- nothing changes for them. With RLS on and zero policies, every other role
+-- is denied by default — do not "fix" this by adding permissive policies;
+-- real per-role policies are separate, deliberate future work.
+alter table agents enable row level security;
+alter table tasks enable row level security;
+alter table drafts enable row level security;
+alter table drafts_dryrun enable row level security;
+alter table approvals enable row level security;
+alter table feedback enable row level security;
+alter table events enable row level security;
+
+revoke execute on function claim_next_task() from anon, authenticated;

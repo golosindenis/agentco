@@ -5,6 +5,7 @@ import type { RunResult } from "../src/runner.js";
 
 const task = { id: "t1", agent_id: "a1", kind: "daily_draft", state: "running",
                due_at: "", error: null } as any;
+const weeklyTask = { ...task, kind: "weekly_angles" };
 const agent = { id: "a1", key: "writer", display_name: "Writer", department: "Growth",
                 level: 1, max_level: 4, streak: 0, recent_verdicts: [],
                 instructions: "You are the Writer.", turn_cap: 8, enabled: true } as any;
@@ -14,6 +15,7 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   getAgent: vi.fn(async () => agent),
   countPendingDrafts: vi.fn(async () => 0),
   latestDraftBody: vi.fn(async () => null),
+  latestApprovedDraftBody: vi.fn(async () => "1. A default approved angle."),
   insertDraft: vi.fn(async () => {}),
   finishTask: vi.fn(async () => {}),
   logEvent: vi.fn(async () => {}),
@@ -106,5 +108,43 @@ describe("processOne", () => {
     });
     await expect(processOne(d, false)).resolves.toBe("failed");
     expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
+  });
+
+  it("passes the approved angle bank into the daily_draft prompt", async () => {
+    const d = deps({
+      latestApprovedDraftBody: vi.fn(async () => "1. Angle one\n2. Angle two"),
+    });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.latestApprovedDraftBody).toHaveBeenCalledWith("weekly_angles");
+    const call = (d.runAgent as any).mock.calls[0];
+    expect(call[1]).toContain("Angle one");
+    expect(call[1]).toContain("Angle two");
+  });
+
+  it("fails a daily_draft task without calling runAgent when there is no approved angle bank", async () => {
+    const d = deps({ latestApprovedDraftBody: vi.fn(async () => null) });
+    expect(await processOne(d, false)).toBe("failed");
+    expect(d.runAgent).not.toHaveBeenCalled();
+    expect(d.insertDraft).not.toHaveBeenCalled();
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
+    expect(d.logEvent).toHaveBeenCalledWith(
+      expect.any(String), expect.any(Object), "a1", "t1",
+    );
+  });
+
+  it("does not fetch an angle bank for a weekly_angles task", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => weeklyTask) });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.latestApprovedDraftBody).not.toHaveBeenCalled();
+  });
+
+  it("skips a disabled agent's task without spawning the agent", async () => {
+    const disabledAgent = { ...agent, enabled: false };
+    const d = deps({ getAgent: vi.fn(async () => disabledAgent) });
+    expect(await processOne(d, false)).toBe("skipped_disabled");
+    expect(d.runAgent).not.toHaveBeenCalled();
+    expect(d.countPendingDrafts).not.toHaveBeenCalled();
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "done");
+    expect(d.logEvent).toHaveBeenCalled();
   });
 });
