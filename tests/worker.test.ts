@@ -71,15 +71,15 @@ describe("processOne", () => {
     expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
   });
 
-  it("marks the task failed instead of throwing when a throw happens after the draft is written", async () => {
+  it("reports success instead of failure when a throw happens after the draft is written", async () => {
     const d = deps({
       logEvent: vi.fn(async (kind: string) => {
         if (kind === "draft_created") throw new Error("log sink unavailable");
       }),
     });
-    await expect(processOne(d, false)).resolves.toBe("failed");
+    await expect(processOne(d, false)).resolves.toBe("produced");
     expect(d.insertDraft).toHaveBeenCalled();
-    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "done");
   });
 
   it("still resolves to failed when finishTask itself throws while recording the failure", async () => {
@@ -88,5 +88,23 @@ describe("processOne", () => {
       finishTask: vi.fn(async () => { throw new Error("db unreachable"); }),
     });
     await expect(processOne(d, false)).resolves.toBe("failed");
+  });
+
+  it("does not propagate when finishTask(\"done\") fails after a successful draft write", async () => {
+    const d = deps({
+      finishTask: vi.fn(async () => { throw new Error("db unreachable"); }),
+    });
+    await expect(processOne(d, false)).resolves.toBe("produced");
+    expect(d.insertDraft).toHaveBeenCalled();
+  });
+
+  it("handles an unstringifiable thrown value without rejecting", async () => {
+    const d = deps({
+      runAgent: vi.fn(async (): Promise<RunResult> => {
+        throw { toString() { throw new Error("nope"); } };
+      }),
+    });
+    await expect(processOne(d, false)).resolves.toBe("failed");
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
   });
 });

@@ -40,12 +40,25 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
   };
 }
 
+/** Converts a caught value to a string for logging/recording, defensively:
+ * stringifying the value itself (a hostile toString()/Symbol.toPrimitive)
+ * can throw, and this helper's whole job is to never let that happen. */
+function errorToMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return "unstringifiable error";
+  }
+}
+
 export async function processOne(
   deps: WorkerDeps, dryRun: boolean,
 ): Promise<WorkerOutcome> {
   const task = await deps.claimNextTask();
   if (!task) return "idle";
 
+  let draftWritten = false;
   try {
     const agent = await deps.getAgent(task.agent_id);
 
@@ -77,6 +90,7 @@ export async function processOne(
     }
 
     await deps.insertDraft(task.id, agent.id, run.body, dryRun);
+    draftWritten = true;
     await deps.logEvent("draft_created", { chars: run.body.length, dryRun }, agent.id, task.id);
     await deps.finishTask(task.id, "done");
     return "produced";
@@ -88,7 +102,25 @@ export async function processOne(
     // task to a terminal, human-visible state instead. finishTask/logEvent can
     // themselves throw (that's how we got here), so guard them too — a failure
     // while recording the failure must not mask the original error.
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorToMessage(err);
+
+    if (draftWritten) {
+      // The agent's actual work already succeeded — insertDraft landed a real,
+      // reviewable draft in the table. Only bookkeeping after that point threw,
+      // so this is not a failure: report it as produced, and log the
+      // bookkeeping error loudly rather than letting it recolor the outcome.
+      console.error(
+        `[worker] task ${task.id} produced a draft successfully, but recording it crashed ` +
+        `(draft already exists, this is a bookkeeping-only failure):`, err,
+      );
+      try {
+        await deps.finishTask(task.id, "done");
+      } catch (finishErr) {
+        console.error(`[worker] finishTask("done") itself threw while recording success for ${task.id} — the row is stuck "running" even though a draft exists:`, finishErr);
+      }
+      return "produced";
+    }
+
     console.error(`[worker] task ${task.id} crashed:`, err);
     try {
       await deps.finishTask(task.id, "failed", message);
