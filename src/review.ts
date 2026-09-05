@@ -8,12 +8,29 @@ export function countRules(instructions: string): number {
 
 export const MAX_RULES = 30;
 
+/**
+ * Appends `rule` as a new line in `instructions`. The rule is normalised to a
+ * single line first — newlines and runs of whitespace collapse to single
+ * spaces, then the result is trimmed — because countRules counts non-empty
+ * lines, and a multi-line reason would otherwise inflate the count and
+ * corrupt the cap. Does not add a leading blank line when `instructions` is
+ * empty, and does not duplicate a rule that is already present verbatim.
+ */
+export function appendRule(instructions: string, rule: string): string {
+  const normalised = rule.replace(/\s+/g, " ").trim();
+  const lines = instructions.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.includes(normalised)) return instructions;
+  return instructions === "" ? normalised : `${instructions}\n${normalised}`;
+}
+
 export type ReviewDeps = {
   loadState: (agentId: string) => Promise<AgentState>;
   saveState: (agentId: string, state: AgentState) => Promise<void>;
   setDraftStatus: (draftId: string, status: "approved" | "declined") => Promise<void>;
   insertApproval: (draftId: string, verdict: Verdict, reason?: string) => Promise<void>;
   insertFeedback: (agentId: string, reason: string) => Promise<void>;
+  loadInstructions: (agentId: string) => Promise<string>;
+  saveInstructions: (agentId: string, instructions: string) => Promise<void>;
 };
 
 export async function recordVerdict(
@@ -28,6 +45,11 @@ export async function recordVerdict(
 
   if (verdict === "declined" && reason) {
     await deps.insertFeedback(agentId, reason);
+
+    const instructions = await deps.loadInstructions(agentId);
+    if (countRules(instructions) < MAX_RULES) {
+      await deps.saveInstructions(agentId, appendRule(instructions, reason));
+    }
   }
 
   const next = applyVerdict(await deps.loadState(agentId), verdict);
@@ -77,6 +99,18 @@ export async function buildLiveReviewDeps(): Promise<ReviewDeps> {
     async insertFeedback(agentId, reason) {
       const { error } = await supabase.from("feedback")
         .insert({ agent_id: agentId, reason });
+      if (error) throw new Error(error.message);
+    },
+    async loadInstructions(agentId) {
+      const { data, error } = await supabase
+        .from("agents").select("instructions")
+        .eq("id", agentId).single();
+      if (error) throw new Error(error.message);
+      return data.instructions;
+    },
+    async saveInstructions(agentId, instructions) {
+      const { error } = await supabase.from("agents")
+        .update({ instructions }).eq("id", agentId);
       if (error) throw new Error(error.message);
     },
   };

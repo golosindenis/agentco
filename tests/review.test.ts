@@ -10,6 +10,8 @@ const deps = (over: Partial<ReviewDeps> = {}): ReviewDeps => ({
   setDraftStatus: vi.fn(async () => {}),
   insertApproval: vi.fn(async () => {}),
   insertFeedback: vi.fn(async () => {}),
+  loadInstructions: vi.fn(async () => ""),
+  saveInstructions: vi.fn(async () => {}),
   ...over,
 });
 
@@ -52,5 +54,58 @@ describe("recordVerdict", () => {
     const d = deps();
     await recordVerdict(d, "d1", "a1", "declined", "wrong angle");
     expect(d.insertApproval).toHaveBeenCalledWith("d1", "declined", "wrong angle");
+  });
+
+  it("appends the decline reason as a rule to the agent's instructions", async () => {
+    const d = deps({ loadInstructions: vi.fn(async () => "rule one\nrule two") });
+    await recordVerdict(d, "d1", "a1", "declined", "too salesy");
+    expect(d.saveInstructions).toHaveBeenCalledWith("a1", "rule one\nrule two\ntoo salesy");
+  });
+
+  it("does not touch instructions on an approval", async () => {
+    const d = deps();
+    await recordVerdict(d, "d1", "a1", "approved");
+    expect(d.saveInstructions).not.toHaveBeenCalled();
+  });
+
+  it("does not append past the rule cap, but still records feedback", async () => {
+    const { MAX_RULES } = await import("../src/review.js");
+    const atCap = Array.from({ length: MAX_RULES }, (_, i) => `rule ${i}`).join("\n");
+    const d = deps({ loadInstructions: vi.fn(async () => atCap) });
+    await recordVerdict(d, "d1", "a1", "declined", "one more thing");
+    expect(d.saveInstructions).not.toHaveBeenCalled();
+    expect(d.insertFeedback).toHaveBeenCalledWith("a1", "one more thing");
+  });
+
+  it("normalises a multi-line decline reason to a single rule line", async () => {
+    const { countRules } = await import("../src/review.js");
+    const before = "rule one\nrule two";
+    const d = deps({ loadInstructions: vi.fn(async () => before) });
+    await recordVerdict(d, "d1", "a1", "declined", "line one\n\n  line two  \nline three");
+    const saved = (d.saveInstructions as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
+    expect(saved).not.toMatch(/\n\n/);
+    expect(countRules(saved)).toBe(countRules(before) + 1);
+  });
+});
+
+describe("appendRule", () => {
+  it("appends a rule as a new line", async () => {
+    const { appendRule } = await import("../src/review.js");
+    expect(appendRule("rule one", "rule two")).toBe("rule one\nrule two");
+  });
+
+  it("does not add a leading blank line when instructions is empty", async () => {
+    const { appendRule } = await import("../src/review.js");
+    expect(appendRule("", "rule one")).toBe("rule one");
+  });
+
+  it("collapses newlines and whitespace in the rule and trims it", async () => {
+    const { appendRule } = await import("../src/review.js");
+    expect(appendRule("rule one", "  line a\n\n line b  ")).toBe("rule one\nline a line b");
+  });
+
+  it("does not duplicate a rule already present verbatim", async () => {
+    const { appendRule } = await import("../src/review.js");
+    expect(appendRule("rule one\nrule two", "rule two")).toBe("rule one\nrule two");
   });
 });

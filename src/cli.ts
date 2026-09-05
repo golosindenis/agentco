@@ -6,6 +6,23 @@ import type { Verdict } from "./types.js";
 
 const rl = readline.createInterface({ input: stdin, output: stdout });
 
+/** EOF sentinel: stdin closed (e.g. Ctrl-D) while waiting on an answer. */
+const EOF = Symbol("eof");
+
+/**
+ * rl.question() rejects if stdin closes before an answer is given. Swallow
+ * that here so Ctrl-D exits the session cleanly instead of crashing with a
+ * raw stack trace — nothing has been written yet for the draft in progress,
+ * so it simply stays pending.
+ */
+async function ask(prompt: string): Promise<string | typeof EOF> {
+  try {
+    return await rl.question(prompt);
+  } catch {
+    return EOF;
+  }
+}
+
 async function main(): Promise<void> {
   const liveReviewDeps = await buildLiveReviewDeps();
 
@@ -32,8 +49,12 @@ async function main(): Promise<void> {
     console.log("─".repeat(64));
     console.log(`\n${d.body}\n`);
 
-    const answer = (await rl.question("[a]pprove  [e]dited  [d]ecline  [s]kip > "))
-      .trim().toLowerCase();
+    const rawAnswer = await ask("[a]pprove  [e]dited  [d]ecline  [s]kip > ");
+    if (rawAnswer === EOF) {
+      console.log("\nInput closed. Exiting — this draft is left pending.\n");
+      return;
+    }
+    const answer = rawAnswer.trim().toLowerCase();
 
     if (answer === "s" || answer === "") continue;
 
@@ -49,7 +70,12 @@ async function main(): Promise<void> {
 
     let reason: string | undefined;
     if (verdict === "declined") {
-      reason = (await rl.question("One line — what was wrong? > ")).trim();
+      const rawReason = await ask("One line — what was wrong? > ");
+      if (rawReason === EOF) {
+        console.log("\nInput closed. Exiting — this draft is left pending.\n");
+        return;
+      }
+      reason = rawReason.trim();
       if (!reason) {
         console.log("A decline needs a reason, or the agent learns nothing. Skipping.\n");
         continue;
