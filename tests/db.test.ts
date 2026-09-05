@@ -100,9 +100,13 @@ describe.skipIf(!hasCredentials)("db", () => {
   });
 
   describe("latestApprovedDraftBody", () => {
-    it("returns null when no draft of that kind has been approved", async () => {
-      expect(await latestApprovedDraftBody("weekly_angles")).toBeNull();
-    });
+    // There is deliberately no "returns null" test here. latestApprovedDraftBody
+    // queries the whole database, not this suite's own agent, so a null
+    // assertion only holds while no angle bank has ever been approved — it
+    // passed on an empty database and broke the moment the system produced a
+    // real one. The behaviour that actually matters (a daily_draft fails
+    // without an approved angle bank, and never spawns an agent) is covered
+    // deterministically with injected fakes in tests/worker.test.ts.
 
     it("returns the newest approved draft body for the given task kind, ignoring other kinds and statuses", async () => {
       const { data: angles } = await supabase.from("tasks")

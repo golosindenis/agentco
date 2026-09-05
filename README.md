@@ -132,7 +132,7 @@ autonomous action.
 ## Tests
 
 ```bash
-npm test          # 94 tests
+npm test          # 93 tests
 npm run typecheck
 ```
 
