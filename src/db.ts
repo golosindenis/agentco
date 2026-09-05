@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
-import type { AgentRow, TaskKind, TaskRow } from "./types.js";
+import type { AgentRow, TaskKind, TaskRow, TaskState, Verdict } from "./types.js";
 import { POSTABLE_KINDS } from "./types.js";
+import type { HealthFacts, HealthTask } from "./health.js";
+import type { RunEvent } from "./costs.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -179,6 +181,24 @@ export async function markPosted(draftId: string): Promise<void> {
   if (error) throw new Error(`markPosted failed: ${error.message}`);
 }
 
+/**
+ * Overwrites a pending draft's body — the dashboard's "approve with edit"
+ * path. The CLI's own "edited" verdict (`e` in `src/cli.ts`) never actually
+ * captures new text today; it just records `approved_with_edit` against the
+ * original body. The dashboard lets Denis change the text before approving,
+ * so the edited body must be saved *before* `recordVerdict` runs — otherwise
+ * `approvedUnpostedDrafts`/`scripts/drafts.ts` would hand back the
+ * unedited version. Only ever called on a still-pending draft, before its
+ * status flips, so there is no risk of rewriting an already-posted draft.
+ */
+export async function updateDraftBody(draftId: string, body: string): Promise<void> {
+  const { error } = await supabase
+    .from("drafts")
+    .update({ body })
+    .eq("id", draftId);
+  if (error) throw new Error(`updateDraftBody failed: ${error.message}`);
+}
+
 export async function finishTask(
   id: string, state: "done" | "failed", error?: string,
 ): Promise<void> {
@@ -275,4 +295,219 @@ export async function logEvent(
     .from("events")
     .insert({ kind, detail, agent_id: agentId ?? null, task_id: taskId ?? null });
   if (error) throw new Error(`logEvent failed: ${error.message}`);
+}
+
+/** Every agent, ordered by department then display name — the dashboard's
+ * "the agents" section and any other caller that needs the whole roster
+ * (rather than one row by id, see `getAgent`) go through this. */
+export async function listAgents(): Promise<AgentRow[]> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .order("department", { ascending: true })
+    .order("display_name", { ascending: true });
+  if (error) throw new Error(`listAgents failed: ${error.message}`);
+  return (data ?? []) as AgentRow[];
+}
+
+/** Pending draft count per agent id, in one round trip rather than one
+ * `countPendingDrafts` call per agent — used by the dashboard to show every
+ * agent's position against the draft cap at once. */
+export async function pendingDraftCountsByAgent(): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("agent_id")
+    .eq("status", "pending");
+  if (error) throw new Error(`pendingDraftCountsByAgent failed: ${error.message}`);
+  const counts: Record<string, number> = {};
+  for (const row of (data ?? []) as { agent_id: string }[]) {
+    counts[row.agent_id] = (counts[row.agent_id] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Most recent event timestamp per agent id — "when it last ran", for the
+ * dashboard's agent cards. Every task run logs at least one event against
+ * its agent_id (draft_created, brief_created, run_failed, skipped_*, ...),
+ * so the most recent event is a faithful proxy for the most recent run
+ * without needing a second query against `tasks`.
+ *
+ * Grouping happens client-side rather than via a Postgres aggregate because
+ * the supabase-js query builder has no `GROUP BY` — ordering by created_at
+ * descending and keeping the first row seen per agent gets the same result
+ * in one round trip, and the events table is small enough that this is
+ * cheap.
+ */
+export async function lastEventTimeByAgent(): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("agent_id, created_at")
+    .not("agent_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  if (error) throw new Error(`lastEventTimeByAgent failed: ${error.message}`);
+  const latest: Record<string, string> = {};
+  for (const row of (data ?? []) as { agent_id: string; created_at: string }[]) {
+    if (!(row.agent_id in latest)) latest[row.agent_id] = row.created_at;
+  }
+  return latest;
+}
+
+/**
+ * Every pending draft awaiting a verdict, oldest first, with the agent
+ * fields the review UI needs. Shared by `src/cli.ts` and the dashboard's
+ * "waiting on you" section so the query lives in exactly one place — see
+ * the "one source of truth" rule in the dashboard build notes.
+ */
+export async function pendingDrafts(): Promise<
+  { id: string; agentId: string; agentName: string; agentLevel: number; body: string; createdAt: string }[]
+> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("id, agent_id, body, created_at, agents(display_name, level)")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`pendingDrafts failed: ${error.message}`);
+  return ((data ?? []) as unknown as
+    { id: string; agent_id: string; body: string; created_at: string; agents: { display_name: string; level: number } | null }[]
+  ).map((row) => ({
+    id: row.id,
+    agentId: row.agent_id,
+    agentName: row.agents?.display_name ?? "unknown",
+    agentLevel: row.agents?.level ?? 1,
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Run/usage telemetry events (`draft_created`, `brief_created`), shaped for
+ * `src/costs.ts`'s pure aggregation. Shared by `scripts/costs.ts` and the
+ * dashboard's costs section so both read the same rows the same way.
+ */
+export async function listRunEvents(): Promise<RunEvent[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("detail, created_at, agents(display_name)")
+    .in("kind", ["draft_created", "brief_created"])
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`listRunEvents failed: ${error.message}`);
+
+  return ((data ?? []) as unknown as {
+    detail: Record<string, unknown>;
+    created_at: string;
+    agents: { display_name: string } | null;
+  }[]).map((row) => ({
+    agent: row.agents?.display_name ?? "unknown",
+    createdAt: row.created_at,
+    // Missing telemetry means the run predates this feature, not that it
+    // was free — leave it null rather than coercing to 0 (see src/costs.ts).
+    costUsd: typeof row.detail.costUsd === "number" ? row.detail.costUsd : null,
+    outputTokens: typeof row.detail.outputTokens === "number" ? row.detail.outputTokens : null,
+  }));
+}
+
+/**
+ * The last ~`limit` events across every agent, newest first, with the
+ * display name and task kind joined in — the dashboard's "recent activity"
+ * feed. `events.task_id` and `events.agent_id` are both nullable to-one FKs
+ * (see the migration), so both joins are left joins and either can come
+ * back null (a crash logged before a task/agent was resolved, say).
+ */
+export async function recentEvents(limit: number): Promise<
+  { id: string; kind: string; createdAt: string; agent: string | null; taskKind: string | null; detail: Record<string, unknown> }[]
+> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("id, kind, detail, created_at, agents(display_name), tasks(kind)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`recentEvents failed: ${error.message}`);
+  return ((data ?? []) as unknown as {
+    id: string; kind: string; detail: Record<string, unknown>; created_at: string;
+    agents: { display_name: string } | null; tasks: { kind: string } | null;
+  }[]).map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    createdAt: row.created_at,
+    agent: row.agents?.display_name ?? null,
+    taskKind: row.tasks?.kind ?? null,
+    detail: row.detail,
+  }));
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function toHealthTask(row: {
+  kind: string; state: string; created_at: string; claimed_at: string | null;
+  finished_at: string | null; error: string | null; agents: { display_name: string } | null;
+}): HealthTask {
+  return {
+    kind: row.kind as TaskKind,
+    state: row.state as TaskState,
+    createdAt: row.created_at,
+    claimedAt: row.claimed_at,
+    finishedAt: row.finished_at,
+    error: row.error,
+    agent: row.agents?.display_name ?? "unknown",
+  };
+}
+
+/**
+ * Raw material for `src/health.ts`'s `deriveHealth` — the dashboard's "did
+ * it run?" banner. Three separate queries rather than one broad fetch
+ * filtered client-side: `runningTasks` and `recentFailedTasks` must cover
+ * task rows regardless of when they were created (a task queued yesterday
+ * and still stuck, or one that failed just after midnight, both matter
+ * today), while `tasksToday` is scoped to the local calendar day — the same
+ * window `scripts/schedule.ts` uses to decide what is already queued.
+ */
+export async function getHealthFacts(now: Date = new Date()): Promise<HealthFacts> {
+  const since = startOfLocalDay(now).toISOString();
+  const failureLookback = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [{ data: today, error: todayErr }, { data: running, error: runningErr },
+    { data: failed, error: failedErr }, { data: lastDone, error: lastErr }] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("kind, state, created_at, claimed_at, finished_at, error, agents(display_name)")
+      .gte("created_at", since),
+    supabase
+      .from("tasks")
+      .select("kind, state, created_at, claimed_at, finished_at, error, agents(display_name)")
+      .eq("state", "running"),
+    supabase
+      .from("tasks")
+      .select("kind, state, created_at, claimed_at, finished_at, error, agents(display_name)")
+      .eq("state", "failed")
+      .gte("finished_at", failureLookback)
+      .order("finished_at", { ascending: false }),
+    supabase
+      .from("tasks")
+      .select("finished_at")
+      .in("state", ["done", "failed"])
+      .not("finished_at", "is", null)
+      .order("finished_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  if (todayErr) throw new Error(`getHealthFacts (today) failed: ${todayErr.message}`);
+  if (runningErr) throw new Error(`getHealthFacts (running) failed: ${runningErr.message}`);
+  if (failedErr) throw new Error(`getHealthFacts (failed) failed: ${failedErr.message}`);
+  if (lastErr) throw new Error(`getHealthFacts (last completed) failed: ${lastErr.message}`);
+
+  type Row = {
+    kind: string; state: string; created_at: string; claimed_at: string | null;
+    finished_at: string | null; error: string | null; agents: { display_name: string } | null;
+  };
+
+  return {
+    tasksToday: ((today ?? []) as unknown as Row[]).map(toHealthTask),
+    runningTasks: ((running ?? []) as unknown as Row[]).map(toHealthTask),
+    recentFailedTasks: ((failed ?? []) as unknown as Row[]).map(toHealthTask),
+    lastCompletedAt: (lastDone as { finished_at: string }[] | null)?.[0]?.finished_at ?? null,
+  };
 }
