@@ -12,7 +12,8 @@
     "worker": "tsx src/worker.ts",
     "schedule": "tsx scripts/schedule.ts",
     "review": "tsx src/cli.ts",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "costs": "tsx scripts/costs.ts"
   },
   "keywords": [],
   "author": "",

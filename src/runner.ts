@@ -2,8 +2,25 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { AgentRow } from "./types.js";
 
+/**
+ * Per-run cost/usage telemetry, parsed from `claude -p --output-format json`.
+ * `costUsd` is a list-price equivalent (`costBasis: "list"` in the CLI's own
+ * output) — Denis runs these agents on a Claude subscription, so this is
+ * never a bill. It exists so an expensive agent is visible, not a surprise.
+ */
+export type RunUsage = {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  durationMs: number;
+  numTurns: number;
+  model: string | null;
+};
+
 export type RunResult =
-  | { ok: true; body: string }
+  | { ok: true; body: string; usage: RunUsage }
   | { ok: false; reason: string };
 
 /**
@@ -16,7 +33,12 @@ export type RunResult =
  * installed CLI binary's option definitions (v2.1.195).
  */
 export function buildArgs(agent: Pick<AgentRow, "turn_cap">): string[] {
-  return ["--print", "--max-turns", String(agent.turn_cap)];
+  return [
+    "--print", "--max-turns", String(agent.turn_cap),
+    // JSON output is what makes usage/cost telemetry parseable at all — see
+    // parseRunJson below. Verified against the installed CLI (v2.1.195).
+    "--output-format", "json",
+  ];
 }
 
 /**
@@ -88,17 +110,97 @@ export function killChild(
   child.once("exit", () => clearTimeout(escalate));
 }
 
+/** A missing/malformed numeric field becomes 0, never a throw — see the
+ * comment on parseRunJson below for why that matters. */
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Parses one `claude -p --output-format json` envelope into a draft body and
+ * its usage telemetry.
+ *
+ * Every numeric usage field defaults to 0, and a missing model defaults to
+ * null, rather than throwing — deliberately. Telemetry is a secondary
+ * concern layered on top of a run that has (or hasn't) already produced a
+ * usable draft; a bug or a future CLI shape change in the usage/modelUsage
+ * fields must never turn an otherwise-good draft into a failed run. Only the
+ * envelope's own error signal (`is_error`) or a missing/empty `result` can
+ * fail this function — never an odd `usage` shape.
+ */
+export function parseRunJson(
+  stdout: string,
+): { ok: true; body: string; usage: RunUsage } | { ok: false; reason: string } {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(stdout);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: `claude output was not valid JSON: ${message}` };
+  }
+
+  if (typeof envelope !== "object" || envelope === null) {
+    return { ok: false, reason: "claude JSON output was not an object" };
+  }
+  const obj = envelope as Record<string, unknown>;
+
+  if (!("result" in obj)) {
+    return { ok: false, reason: 'claude JSON output is missing "result"' };
+  }
+
+  if (obj.is_error === true) {
+    const subtype = typeof obj.subtype === "string" ? obj.subtype : "unknown";
+    const resultText = typeof obj.result === "string" ? obj.result.trim() : "";
+    return {
+      ok: false,
+      reason: `claude reported an error (${subtype})${resultText ? `: ${resultText}` : ""}`,
+    };
+  }
+
+  const result = obj.result;
+  if (typeof result !== "string") {
+    return { ok: false, reason: 'claude JSON output\'s "result" was not a string' };
+  }
+  const body = result.trim();
+  if (body.length === 0) {
+    return { ok: false, reason: 'claude JSON output\'s "result" was empty' };
+  }
+
+  const usageRaw = obj.usage && typeof obj.usage === "object"
+    ? obj.usage as Record<string, unknown> : {};
+  const modelUsage = obj.modelUsage && typeof obj.modelUsage === "object"
+    ? obj.modelUsage as Record<string, unknown> : {};
+  const model = Object.keys(modelUsage)[0] ?? null;
+
+  const usage: RunUsage = {
+    costUsd: num(obj.total_cost_usd),
+    inputTokens: num(usageRaw.input_tokens),
+    outputTokens: num(usageRaw.output_tokens),
+    cacheReadTokens: num(usageRaw.cache_read_input_tokens),
+    cacheCreationTokens: num(usageRaw.cache_creation_input_tokens),
+    durationMs: num(obj.duration_ms),
+    numTurns: num(obj.num_turns),
+    model,
+  };
+
+  return { ok: true, body, usage };
+}
+
 export function interpretRun(
   code: number, stdout: string, stderr: string,
 ): RunResult {
   if (code !== 0) {
     return { ok: false, reason: `claude exited ${code}: ${stderr.trim()}` };
   }
-  const body = stdout.trim();
-  if (body.length === 0) {
+  const trimmed = stdout.trim();
+  if (trimmed.length === 0) {
     return { ok: false, reason: "claude exited 0 but produced no output" };
   }
-  return { ok: true, body };
+  const parsed = parseRunJson(stdout);
+  if (!parsed.ok) {
+    return { ok: false, reason: parsed.reason };
+  }
+  return { ok: true, body: parsed.body, usage: parsed.usage };
 }
 
 export function runAgent(

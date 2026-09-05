@@ -1,8 +1,23 @@
 import { describe, it, expect, vi } from "vitest";
 import { processOne } from "../src/worker.js";
 import type { WorkerDeps } from "../src/worker.js";
-import type { RunResult } from "../src/runner.js";
+import type { RunResult, RunUsage } from "../src/runner.js";
 import type { BriefFacts } from "../src/db.js";
+
+// Fixture usage attached to the default successful runAgent mock below.
+// RunResult's success case now carries `usage` (see src/runner.ts), so every
+// fake `runAgent` returning `ok: true` must include it to typecheck — this is
+// a fixture change, not a behaviour change.
+const defaultUsage: RunUsage = {
+  costUsd: 0.1234,
+  inputTokens: 100,
+  outputTokens: 200,
+  cacheReadTokens: 31000,
+  cacheCreationTokens: 32000,
+  durationMs: 4500,
+  numTurns: 3,
+  model: "claude-sonnet-5",
+};
 
 const task = { id: "t1", agent_id: "a1", kind: "daily_draft", state: "running",
                due_at: "", error: null } as any;
@@ -31,7 +46,7 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   finishTask: vi.fn(async () => {}),
   logEvent: vi.fn(async () => {}),
   gatherBriefFacts: vi.fn(async () => defaultBriefFacts),
-  runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "A perfectly good draft body." })),
+  runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "A perfectly good draft body.", usage: defaultUsage })),
   ...over,
 });
 
@@ -154,7 +169,7 @@ describe("processOne", () => {
     const d = deps({
       claimNextTask: vi.fn(async () => briefTask),
       latestDraftBody: vi.fn(async () => "Nothing ran overnight."),
-      runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "Nothing ran overnight." })),
+      runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "Nothing ran overnight.", usage: defaultUsage })),
     });
     expect(await processOne(d, false)).toBe("produced");
     expect(d.insertBrief).toHaveBeenCalledWith("a1", "Nothing ran overnight.", false);
@@ -228,6 +243,41 @@ describe("processOne", () => {
     expect(await processOne(d, true)).toBe("produced");
     expect(d.countPendingDrafts).toHaveBeenCalledWith("a1", true);
     expect(d.latestDraftBody).toHaveBeenCalledWith("a1", true);
+  });
+
+  it("records cost and token usage from the run in the draft_created event detail", async () => {
+    const d = deps();
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.logEvent).toHaveBeenCalledWith(
+      "draft_created",
+      expect.objectContaining({
+        chars: "A perfectly good draft body.".length,
+        dryRun: false,
+        costUsd: defaultUsage.costUsd,
+        inputTokens: defaultUsage.inputTokens,
+        outputTokens: defaultUsage.outputTokens,
+        cacheReadTokens: defaultUsage.cacheReadTokens,
+        cacheCreationTokens: defaultUsage.cacheCreationTokens,
+        durationMs: defaultUsage.durationMs,
+        numTurns: defaultUsage.numTurns,
+        model: defaultUsage.model,
+      }),
+      "a1", "t1",
+    );
+  });
+
+  it("records cost and token usage from the run in the brief_created event detail", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => briefTask) });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.logEvent).toHaveBeenCalledWith(
+      "brief_created",
+      expect.objectContaining({
+        costUsd: defaultUsage.costUsd,
+        outputTokens: defaultUsage.outputTokens,
+        model: defaultUsage.model,
+      }),
+      "a1", "t1",
+    );
   });
 
   it("skips a disabled agent's task without spawning the agent", async () => {
