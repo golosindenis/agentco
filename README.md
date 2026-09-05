@@ -51,9 +51,57 @@ npm run worker -- --dry-run # same, but writes to the *_dryrun tables. Nothing r
 npm run review              # walk the pending drafts: approve, edit, or decline
 ```
 
-The worker is not a daemon. It drains what is due and exits, so cron owns the
-schedule. There is no scheduler in this repo yet — tasks are queued by hand or
-by whatever you point at it.
+The worker is not a daemon. It drains what is due and exits.
+
+## Schedule
+
+Every morning at 07:00 local time, `launchd` runs `scripts/daily.sh`, which
+queues today's tasks and then drains them:
+
+```bash
+npm run schedule   # queue what's due today (src/schedule.ts decides what)
+npm run worker      # drain the queue
+```
+
+`src/schedule.ts` decides what is due for a given local calendar day: every
+day gets a `daily_draft` for the Writer and a `brief` for the Chief of Staff;
+Mondays additionally get a `weekly_angles` for the Strategist. `scripts/schedule.ts`
+queues each of those idempotently — it skips a task if one of that kind
+already exists for that agent with `created_at` on or after the start of the
+current local day. This matters because `launchd` runs a missed
+`StartCalendarInterval` job when the Mac wakes from sleep, so this script can
+legitimately run more than once in one morning and must not double-queue.
+
+**Install the LaunchAgent:**
+
+```bash
+launchctl bootstrap gui/$(id -u) /Users/denisgolosin/Desktop/agentco/launchd/com.denis.agentco.daily.plist
+```
+
+**Remove it:**
+
+```bash
+launchctl bootout gui/$(id -u)/com.denis.agentco.daily
+```
+
+**Test it immediately**, without waiting for 7am:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.denis.agentco.daily
+```
+
+**Logs** land in `logs/daily.log` (one timestamped header per run of
+`scripts/daily.sh`, with the schedule and worker output beneath it) and, for
+whatever `launchd` itself couldn't hand to that script, `logs/launchd.out.log`
+/ `logs/launchd.err.log`. All three are gitignored.
+
+**Catch-up on wake:** the plist deliberately does not set `RunAtLoad`. A
+`StartCalendarInterval` job that `launchd` couldn't run at 07:00 — because the
+Mac was asleep — fires as soon as the Mac wakes, which is exactly the
+catch-up behaviour wanted here: a morning where the Mac woke at 9am still gets
+its tasks queued and drained, just late. That only works if the Mac is awake
+or asleep at 07:00, never powered off — a powered-off Mac gives `launchd`
+nothing to catch up when it eventually boots.
 
 ## The rules
 
@@ -84,7 +132,7 @@ autonomous action.
 ## Tests
 
 ```bash
-npm test          # 88 tests
+npm test          # 94 tests
 npm run typecheck
 ```
 
@@ -110,6 +158,10 @@ which those tests silently skip forever even when credentials are present.
 | `src/review.ts` | Verdict recording and the feedback loop. |
 | `src/cli.ts` | The review session. |
 | `src/seed.ts` | Inserts the three v1 agents. |
+| `src/schedule.ts` | Pure. Calendar day → which tasks are due. |
+| `scripts/schedule.ts` | Queues today's due tasks idempotently. |
+| `scripts/daily.sh` | What `launchd` runs: schedule, then worker, logged. |
+| `launchd/com.denis.agentco.daily.plist` | The 07:00 LaunchAgent. See "Schedule". |
 
 ## Security notes
 
