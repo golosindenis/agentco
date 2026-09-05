@@ -137,4 +137,10 @@ alter table approvals enable row level security;
 alter table feedback enable row level security;
 alter table events enable row level security;
 
+-- Verified against a live database on 2026-09-05: revoking only from anon and
+-- authenticated is NOT enough. Postgres grants execute to PUBLIC by default, so
+-- both roles still passed has_function_privilege() until PUBLIC was revoked too.
+-- Revoking PUBLIC also strips service_role, so it is granted back explicitly.
+revoke execute on function claim_next_task() from public;
 revoke execute on function claim_next_task() from anon, authenticated;
+grant  execute on function claim_next_task() to service_role;
