@@ -93,6 +93,42 @@ export async function insertDraft(
   if (error) throw new Error(`insertDraft failed: ${error.message}`);
 }
 
+/**
+ * `briefsTable` mirrors `table` above for the same reason: a dry-run brief
+ * must never land in the real `briefs` table, so the write has to switch
+ * tables on `dryRun` exactly like `insertDraft` does. The brief has no
+ * `status` and never enters the approval queue (see the migration comment),
+ * so unlike `drafts` there is no read here that also needs to branch on
+ * `dryRun` — `latestBrief` below is only ever used to show Denis the real
+ * brief, never the dry-run scratch copy.
+ */
+function briefsTable(dryRun: boolean): "briefs" | "briefs_dryrun" {
+  return dryRun ? "briefs_dryrun" : "briefs";
+}
+
+export async function insertBrief(
+  agentId: string, body: string, dryRun: boolean,
+): Promise<void> {
+  const { error } = await supabase
+    .from(briefsTable(dryRun))
+    .insert({ agent_id: agentId, body });
+  if (error) throw new Error(`insertBrief failed: ${error.message}`);
+}
+
+/** The most recent real brief, for the CLI to show Denis as information —
+ * never as something to approve. Always reads `briefs`, never
+ * `briefs_dryrun`: a dry run's output is scratch, not something Denis
+ * should ever be shown as his actual morning brief. */
+export async function latestBrief(): Promise<{ body: string; created_at: string } | null> {
+  const { data, error } = await supabase
+    .from("briefs")
+    .select("body, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`latestBrief failed: ${error.message}`);
+  return data?.[0] ?? null;
+}
+
 export async function finishTask(
   id: string, state: "done" | "failed", error?: string,
 ): Promise<void> {

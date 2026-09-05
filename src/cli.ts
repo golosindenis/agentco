@@ -1,6 +1,6 @@
 import * as readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { supabase } from "./db.js";
+import { supabase, latestBrief } from "./db.js";
 import { recordVerdict, buildLiveReviewDeps, MAX_RULES } from "./review.js";
 import type { Verdict } from "./types.js";
 
@@ -45,8 +45,32 @@ async function ask(prompt: string): Promise<string | typeof EOF> {
   }
 }
 
+/**
+ * The brief is read-only (see the `briefs` table comment in the migration):
+ * it never enters the approval queue, so it is shown here, up front, purely
+ * as information — never mixed into the pending-drafts list below and never
+ * offered a verdict. The `═` divider (vs. the `─` used per-draft further
+ * down) is deliberate: a different rule so this section cannot be mistaken
+ * for one more thing to act on.
+ */
+async function printLatestBrief(): Promise<void> {
+  const brief = await latestBrief();
+  console.log("═".repeat(64));
+  console.log("MORNING BRIEF — for your information, no verdict needed");
+  console.log("═".repeat(64));
+  if (brief) {
+    console.log(`\n${brief.body}\n`);
+    console.log(`(written ${new Date(brief.created_at).toLocaleString()})`);
+  } else {
+    console.log("\nNo brief yet.");
+  }
+  console.log("");
+}
+
 async function main(): Promise<void> {
   const liveReviewDeps = await buildLiveReviewDeps();
+
+  await printLatestBrief();
 
   const { data, error } = await supabase
     .from("drafts")

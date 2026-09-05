@@ -27,6 +27,7 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   latestDraftBody: vi.fn(async () => null),
   latestApprovedDraftBody: vi.fn(async () => "1. A default approved angle."),
   insertDraft: vi.fn(async () => {}),
+  insertBrief: vi.fn(async () => {}),
   finishTask: vi.fn(async () => {}),
   logEvent: vi.fn(async () => {}),
   gatherBriefFacts: vi.fn(async () => defaultBriefFacts),
@@ -156,7 +157,44 @@ describe("processOne", () => {
       runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "Nothing ran overnight." })),
     });
     expect(await processOne(d, false)).toBe("produced");
-    expect(d.insertDraft).toHaveBeenCalledWith("t1", "a1", "Nothing ran overnight.", false);
+    expect(d.insertBrief).toHaveBeenCalledWith("a1", "Nothing ran overnight.", false);
+    expect(d.insertDraft).not.toHaveBeenCalled();
+  });
+
+  it("writes a brief task via insertBrief, never insertDraft", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => briefTask) });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.insertBrief).toHaveBeenCalledWith("a1", "A perfectly good draft body.", false);
+    expect(d.insertDraft).not.toHaveBeenCalled();
+  });
+
+  it("produces a brief even when the agent already has 3 pending drafts", async () => {
+    const d = deps({
+      claimNextTask: vi.fn(async () => briefTask),
+      countPendingDrafts: vi.fn(async () => 3),
+    });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.insertBrief).toHaveBeenCalled();
+    expect(d.countPendingDrafts).not.toHaveBeenCalled();
+  });
+
+  it("a daily_draft task still calls insertDraft and still respects backpressure", async () => {
+    const dCapped = deps({ countPendingDrafts: vi.fn(async () => 3) });
+    expect(await processOne(dCapped, false)).toBe("skipped_at_capacity");
+    expect(dCapped.insertDraft).not.toHaveBeenCalled();
+    expect(dCapped.insertBrief).not.toHaveBeenCalled();
+
+    const dRoom = deps({ countPendingDrafts: vi.fn(async () => 2) });
+    expect(await processOne(dRoom, false)).toBe("produced");
+    expect(dRoom.insertDraft).toHaveBeenCalledWith("t1", "a1", "A perfectly good draft body.", false);
+    expect(dRoom.insertBrief).not.toHaveBeenCalled();
+  });
+
+  it("does not write a dry-run brief to the real briefs table", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => briefTask) });
+    expect(await processOne(d, true)).toBe("produced");
+    expect(d.insertBrief).toHaveBeenCalledWith("a1", "A perfectly good draft body.", true);
+    expect(d.insertDraft).not.toHaveBeenCalled();
   });
 
   it("passes the gathered brief facts into the prompt for a brief task", async () => {

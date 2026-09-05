@@ -16,6 +16,7 @@ export type WorkerDeps = {
   latestDraftBody: (agentId: string, dryRun: boolean) => Promise<string | null>;
   latestApprovedDraftBody: (kind: TaskKind) => Promise<string | null>;
   insertDraft: (taskId: string, agentId: string, body: string, dryRun: boolean) => Promise<void>;
+  insertBrief: (agentId: string, body: string, dryRun: boolean) => Promise<void>;
   finishTask: (id: string, state: "done" | "failed", error?: string) => Promise<void>;
   logEvent: (kind: string, detail: Record<string, unknown>, agentId?: string, taskId?: string) => Promise<void>;
   gatherBriefFacts: () => Promise<BriefFacts>;
@@ -38,6 +39,7 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
     latestDraftBody: db.latestDraftBody,
     latestApprovedDraftBody: db.latestApprovedDraftBody,
     insertDraft: db.insertDraft,
+    insertBrief: db.insertBrief,
     finishTask: db.finishTask,
     logEvent: db.logEvent,
     gatherBriefFacts: db.gatherBriefFacts,
@@ -77,16 +79,27 @@ export async function processOne(
       return "skipped_disabled";
     }
 
-    const pending = await deps.countPendingDrafts(agent.id, dryRun);
-    if (!canProduce(pending)) {
-      // A capacity skip marks the task "done", not "failed" or requeued. These
-      // are recurring scheduled tasks: tomorrow's run creates a fresh occurrence
-      // regardless. Requeuing a skipped occurrence would just rebuild the same
-      // backlog that this capacity check exists to prevent, so the occurrence
-      // is dropped on purpose.
-      await deps.logEvent("skipped_at_capacity", { pending }, agent.id, task.id);
-      await deps.finishTask(task.id, "done");
-      return "skipped_at_capacity";
+    const isBrief = task.kind === "brief";
+
+    // The backpressure cap throttles on drafts awaiting Denis's verdict — the
+    // brief never enters that queue (see the migration and gatherBriefFacts'
+    // doc comment), so it is not pending work and must never be blocked by
+    // it. Skipping the check entirely, rather than just exempting `brief`
+    // from `canProduce`'s result, also means an unread brief can never
+    // itself count toward some other kind's cap and can never be starved by
+    // a full one: the two are on completely separate queues.
+    if (!isBrief) {
+      const pending = await deps.countPendingDrafts(agent.id, dryRun);
+      if (!canProduce(pending)) {
+        // A capacity skip marks the task "done", not "failed" or requeued. These
+        // are recurring scheduled tasks: tomorrow's run creates a fresh occurrence
+        // regardless. Requeuing a skipped occurrence would just rebuild the same
+        // backlog that this capacity check exists to prevent, so the occurrence
+        // is dropped on purpose.
+        await deps.logEvent("skipped_at_capacity", { pending }, agent.id, task.id);
+        await deps.finishTask(task.id, "done");
+        return "skipped_at_capacity";
+      }
     }
 
     let taskPrompt = TASK_PROMPTS[task.kind];
@@ -106,7 +119,7 @@ export async function processOne(
       }
       taskPrompt = `${taskPrompt}\n\n## Approved angle bank\n\n${angleBank}`;
     }
-    if (task.kind === "brief") {
+    if (isBrief) {
       // The brief has nothing to draw on besides its own instructions and
       // this bare task prompt (see runAgent) — it cannot query anything
       // itself. Its own seeded instructions say never to fabricate, so
@@ -132,7 +145,7 @@ export async function processOne(
     // "nothing was due" and "the worker died". So a brief task is never
     // compared against its previous output; the empty and too-short checks
     // in assertUsableOutput still apply to it.
-    const previous = task.kind === "brief" ? null : await deps.latestDraftBody(agent.id, dryRun);
+    const previous = isBrief ? null : await deps.latestDraftBody(agent.id, dryRun);
     const check = assertUsableOutput(run.body, previous);
     if (!check.ok) {
       await deps.logEvent("output_rejected", { reason: check.reason }, agent.id, task.id);
@@ -140,9 +153,21 @@ export async function processOne(
       return "failed";
     }
 
-    await deps.insertDraft(task.id, agent.id, run.body, dryRun);
+    // The brief is read-only and never enters the approval queue drafts sit
+    // in (see the migration comment on `briefs`), so it is written through
+    // its own `insertBrief` path rather than `insertDraft` — landing it in
+    // `drafts` here would put it right back in front of Denis for a verdict,
+    // which is exactly what this table split exists to prevent.
+    if (isBrief) {
+      await deps.insertBrief(agent.id, run.body, dryRun);
+    } else {
+      await deps.insertDraft(task.id, agent.id, run.body, dryRun);
+    }
     draftWritten = true;
-    await deps.logEvent("draft_created", { chars: run.body.length, dryRun }, agent.id, task.id);
+    await deps.logEvent(
+      isBrief ? "brief_created" : "draft_created",
+      { chars: run.body.length, dryRun }, agent.id, task.id,
+    );
     await deps.finishTask(task.id, "done");
     return "produced";
   } catch (err) {
@@ -156,10 +181,11 @@ export async function processOne(
     const message = errorToMessage(err);
 
     if (draftWritten) {
-      // The agent's actual work already succeeded — insertDraft landed a real,
-      // reviewable draft in the table. Only bookkeeping after that point threw,
-      // so this is not a failure: report it as produced, and log the
-      // bookkeeping error loudly rather than letting it recolor the outcome.
+      // The agent's actual work already succeeded — insertDraft/insertBrief
+      // landed a real, reviewable draft (or a read-only brief) in the table.
+      // Only bookkeeping after that point threw, so this is not a failure:
+      // report it as produced, and log the bookkeeping error loudly rather
+      // than letting it recolor the outcome.
       console.error(
         `[worker] task ${task.id} produced a draft successfully, but recording it crashed ` +
         `(draft already exists, this is a bookkeeping-only failure):`, err,

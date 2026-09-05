@@ -44,6 +44,20 @@ create index drafts_queue_idx on drafts (agent_id, status);
 -- dry-run output never mixes with real drafts
 create table drafts_dryrun (like drafts including all);
 
+-- The morning brief is read-only: no status column, because a brief is never
+-- approved or declined. It must never enter the approval queue drafts sit
+-- in, so it gets its own table rather than a row in `drafts` with no status.
+create table briefs (
+  id         uuid primary key default gen_random_uuid(),
+  agent_id   uuid not null references agents(id) on delete cascade,
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+create index briefs_recent_idx on briefs (created_at desc);
+
+-- dry-run output never mixes with real briefs
+create table briefs_dryrun (like briefs including all);
+
 create table approvals (
   id         uuid primary key default gen_random_uuid(),
   draft_id   uuid not null references drafts(id) on delete cascade,
@@ -117,6 +131,8 @@ alter table agents enable row level security;
 alter table tasks enable row level security;
 alter table drafts enable row level security;
 alter table drafts_dryrun enable row level security;
+alter table briefs enable row level security;
+alter table briefs_dryrun enable row level security;
 alter table approvals enable row level security;
 alter table feedback enable row level security;
 alter table events enable row level security;
