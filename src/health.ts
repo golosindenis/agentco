@@ -80,6 +80,20 @@ function describeToday(tasks: HealthTask[]): string {
  *   3. healthy — today produced at least one finished (done or failed) task
  *      and nothing above fired.
  */
+/** A raw ISO string is unreadable in the one line Denis reads most. Render a
+ *  local clock time plus a coarse relative age instead: "6:50 PM, 5 hrs ago". */
+function formatWhen(iso: string, now: Date): string {
+  const when = new Date(iso);
+  const time = when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const mins = minutesAgo(iso, now);
+  const ago =
+    mins < 1 ? "just now"
+    : mins < 60 ? `${mins} min ago`
+    : mins < 60 * 24 ? `${Math.round(mins / 60)} hr${Math.round(mins / 60) === 1 ? "" : "s"} ago`
+    : `${Math.round(mins / (60 * 24))} day${Math.round(mins / (60 * 24)) === 1 ? "" : "s"} ago`;
+  return `${time}, ${ago}`;
+}
+
 export function deriveHealth(facts: HealthFacts, now: Date): HealthResult {
   const stuck = facts.runningTasks.filter(
     (t) => t.claimedAt !== null && now.getTime() - new Date(t.claimedAt).getTime() > STUCK_RUNNING_THRESHOLD_MS,
@@ -117,7 +131,7 @@ export function deriveHealth(facts: HealthFacts, now: Date): HealthResult {
     );
     evidence.push(
       facts.lastCompletedAt
-        ? `Last completed run: ${facts.lastCompletedAt} (${minutesAgo(facts.lastCompletedAt, now)} min ago)`
+        ? `Last completed run: ${formatWhen(facts.lastCompletedAt, now)}`
         : "No run has ever completed",
     );
     return { state: "nothing_ran_today", headline: "Nothing ran today yet.", evidence };
@@ -125,7 +139,7 @@ export function deriveHealth(facts: HealthFacts, now: Date): HealthResult {
 
   evidence.push(describeToday(facts.tasksToday));
   if (facts.lastCompletedAt) {
-    evidence.push(`Last completed: ${facts.lastCompletedAt} (${minutesAgo(facts.lastCompletedAt, now)} min ago)`);
+    evidence.push(`Last completed: ${formatWhen(facts.lastCompletedAt, now)}`);
   }
   return { state: "healthy", headline: "This morning's run went through clean.", evidence };
 }

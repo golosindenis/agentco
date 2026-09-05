@@ -96,6 +96,11 @@ export default async function DashboardPage() {
             const atCap = pendingCount >= MAX_PENDING_DRAFTS;
             const lastRunAt = lastRun[agent.id];
             const totals = totalsByAgentName.get(agent.display_name);
+            // An agent whose runs all predate cost telemetry has no cost data,
+            // which is not the same as having cost nothing. Showing $0.0000
+            // would read as "free" — say "not measured" instead, matching how
+            // the costs table below labels uncosted runs.
+            const costedRuns = totals?.costedRuns ?? 0;
             const totalCost = totals?.totalCostUsd ?? 0;
             const atMaxLevel = agent.level >= Math.min(4, agent.max_level);
 
@@ -149,7 +154,9 @@ export default async function DashboardPage() {
 
                 <div className="meta-row">
                   <span>Total cost (list-price)</span>
-                  <strong>{money(totalCost)}</strong>
+                  <strong>
+                    {costedRuns > 0 ? money(totalCost) : "not measured"}
+                  </strong>
                 </div>
               </div>
             );
