@@ -12,16 +12,7 @@
  * on the API.
  */
 import { supabase } from "../src/db.js";
-
-export type CostEvent = {
-  agentName: string;
-  costUsd: number;
-  outputTokens: number;
-  createdAt: string; // ISO timestamp
-};
-
-type AgentStats = { runs: number; totalCost: number; totalOutputTokens: number };
-type DayStats = { runs: number; totalCost: number };
+import { totalsByAgent, totalsByDay, type RunEvent } from "../src/costs.js";
 
 export const REPORT_DAYS = 14;
 
@@ -37,43 +28,15 @@ function money(n: number): string {
   return `$${n.toFixed(4)}`;
 }
 
-/** UTC calendar-day key (YYYY-MM-DD) for grouping and for the day table. */
-function dayKey(iso: string): string {
-  return iso.slice(0, 10);
-}
-
 /**
  * Pure report builder: no network, no clock reads beyond the `now` passed
  * in. Isolated from src/db.ts's fetch so it can be tested with fixtures.
+ * The arithmetic itself lives in src/costs.ts (totalsByAgent/totalsByDay) —
+ * this only maps that data into text.
  */
-export function buildReport(events: CostEvent[], now: Date = new Date()): string {
+export function buildReport(events: RunEvent[], now: Date = new Date()): string {
   if (events.length === 0) {
     return "No runs recorded yet.\n";
-  }
-
-  const byAgent = new Map<string, AgentStats>();
-  for (const e of events) {
-    const s = byAgent.get(e.agentName) ?? { runs: 0, totalCost: 0, totalOutputTokens: 0 };
-    s.runs += 1;
-    s.totalCost += e.costUsd;
-    s.totalOutputTokens += e.outputTokens;
-    byAgent.set(e.agentName, s);
-  }
-
-  const dayKeys: string[] = [];
-  for (let i = REPORT_DAYS - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() - i);
-    dayKeys.push(d.toISOString().slice(0, 10));
-  }
-  const byDay = new Map<string, DayStats>();
-  for (const key of dayKeys) byDay.set(key, { runs: 0, totalCost: 0 });
-  for (const e of events) {
-    const stats = byDay.get(dayKey(e.createdAt));
-    if (stats) {
-      stats.runs += 1;
-      stats.totalCost += e.costUsd;
-    }
   }
 
   const lines: string[] = [];
@@ -81,32 +44,44 @@ export function buildReport(events: CostEvent[], now: Date = new Date()): string
   lines.push("=== Cost by agent ===");
   lines.push(
     padRight("Agent", 20) + padLeft("Runs", 8) + padLeft("Total cost", 14) +
-    padLeft("Avg/run", 12) + padLeft("Output tok", 14),
+    padLeft("Avg/run", 12) + padLeft("Output tok", 14) + "  Uncosted",
   );
-  const agentRows = [...byAgent.entries()].sort((a, b) => b[1].totalCost - a[1].totalCost);
-  for (const [name, s] of agentRows) {
+  const agentTotals = totalsByAgent(events);
+  for (const t of agentTotals) {
+    const uncosted = t.runs - t.costedRuns;
+    const avg = t.avgCostUsd === null ? "n/a" : money(t.avgCostUsd);
     lines.push(
-      padRight(name, 20) + padLeft(String(s.runs), 8) + padLeft(money(s.totalCost), 14) +
-      padLeft(money(s.totalCost / s.runs), 12) + padLeft(String(s.totalOutputTokens), 14),
+      padRight(t.agent, 20) + padLeft(String(t.runs), 8) + padLeft(money(t.totalCostUsd), 14) +
+      padLeft(avg, 12) + padLeft(String(t.outputTokens), 14) +
+      (uncosted > 0 ? `  ${uncosted} uncosted` : ""),
     );
   }
 
   lines.push("");
   lines.push(`=== Cost by day (last ${REPORT_DAYS} days) ===`);
-  lines.push(padRight("Date", 14) + padLeft("Runs", 8) + padLeft("Total cost", 14));
-  for (const key of dayKeys) {
-    const s = byDay.get(key)!;
-    lines.push(padRight(key, 14) + padLeft(String(s.runs), 8) + padLeft(money(s.totalCost), 14));
+  const dayTotals = totalsByDay(events, REPORT_DAYS, now);
+  if (dayTotals.length === 0) {
+    lines.push(`No runs in the last ${REPORT_DAYS} days.`);
+  } else {
+    lines.push(padRight("Date", 14) + padLeft("Runs", 8) + padLeft("Total cost", 14));
+    for (const d of dayTotals) {
+      lines.push(padRight(d.date, 14) + padLeft(String(d.runs), 8) + padLeft(money(d.totalCostUsd), 14));
+    }
   }
 
   const totalRuns = events.length;
-  const totalCost = events.reduce((sum, e) => sum + e.costUsd, 0);
-  const sortedDays = events.map((e) => dayKey(e.createdAt)).sort();
+  const totalCostedRuns = agentTotals.reduce((sum, t) => sum + t.costedRuns, 0);
+  const totalCost = agentTotals.reduce((sum, t) => sum + t.totalCostUsd, 0);
+  const sortedDays = events.map((e) => e.createdAt.slice(0, 10)).sort();
   const earliest = sortedDays[0]!;
   const latest = sortedDays[sortedDays.length - 1]!;
+  const uncostedRuns = totalRuns - totalCostedRuns;
 
   lines.push("");
-  lines.push(`Grand total: ${totalRuns} runs, ${money(totalCost)}, ${earliest} to ${latest}`);
+  lines.push(
+    `Grand total: ${totalRuns} runs, ${money(totalCost)}, ${earliest} to ${latest}` +
+    (uncostedRuns > 0 ? ` (${uncostedRuns} uncosted, predate telemetry)` : ""),
+  );
   lines.push("");
   lines.push(
     'These are list-price equivalents (costBasis: "list"), not a bill — Denis runs ' +
@@ -117,7 +92,7 @@ export function buildReport(events: CostEvent[], now: Date = new Date()): string
   return lines.join("\n") + "\n";
 }
 
-async function fetchCostEvents(): Promise<CostEvent[]> {
+async function fetchRunEvents(): Promise<RunEvent[]> {
   const { data, error } = await supabase
     .from("events")
     .select("detail, created_at, agents(display_name)")
@@ -130,15 +105,17 @@ async function fetchCostEvents(): Promise<CostEvent[]> {
     created_at: string;
     agents: { display_name: string } | null;
   }[]).map((row) => ({
-    agentName: row.agents?.display_name ?? "unknown",
-    costUsd: typeof row.detail.costUsd === "number" ? row.detail.costUsd : 0,
-    outputTokens: typeof row.detail.outputTokens === "number" ? row.detail.outputTokens : 0,
+    agent: row.agents?.display_name ?? "unknown",
     createdAt: row.created_at,
+    // Missing telemetry means the run predates this feature, not that it
+    // was free — leave it null rather than coercing to 0 (see src/costs.ts).
+    costUsd: typeof row.detail.costUsd === "number" ? row.detail.costUsd : null,
+    outputTokens: typeof row.detail.outputTokens === "number" ? row.detail.outputTokens : null,
   }));
 }
 
 async function main(): Promise<void> {
-  const events = await fetchCostEvents();
+  const events = await fetchRunEvents();
   console.log(buildReport(events));
 }
 
