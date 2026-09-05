@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { spawn } from "node:child_process";
 import {
   buildArgs,
   interpretRun,
   runAgent,
+  killChild,
   MAX_OUTPUT_CHARS,
 } from "../src/runner.js";
 
@@ -41,16 +43,27 @@ describe("runAgent process handling", () => {
   it(
     "does not crash the process when the child exits without reading stdin (EPIPE)",
     async () => {
+      // A pipe buffer is typically ~64KB. To force a real EPIPE we need a
+      // prompt far larger than that, plus a child that never reads stdin
+      // and exits shortly after starting — otherwise the (synchronous,
+      // same-tick) stdin write completes before the child can possibly
+      // exit, and the test passes for the wrong reason.
+      const bigAgent = {
+        ...agent,
+        instructions: "x".repeat(512 * 1024),
+      };
+
       const uncaught: unknown[] = [];
       const onUncaught = (err: unknown) => uncaught.push(err);
       process.on("uncaughtException", onUncaught);
 
       try {
-        const result = await runAgent(agent, "hello", {
+        const result = await runAgent(bigAgent, "hello", {
           command: "node",
-          args: ["-e", "process.exit(0)"],
+          args: ["-e", "setTimeout(() => process.exit(0), 50)"],
         });
         expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toContain("stdin error");
       } finally {
         process.off("uncaughtException", onUncaught);
       }
@@ -128,4 +141,36 @@ describe("runAgent process handling", () => {
     if (!result.ok) expect(result.reason).toContain("could not spawn");
     expect(resolutions.length).toBe(1);
   });
+});
+
+describe("killChild", () => {
+  it(
+    "escalates to SIGKILL when the child ignores SIGTERM",
+    async () => {
+      // Print "ready" only after the SIGTERM handler is installed, and wait
+      // for it before signaling — node -e takes tens of ms to boot, and
+      // killing before the handler is registered would kill it with the
+      // default (fatal) SIGTERM action instead of exercising the escalation.
+      const child = spawn("node", [
+        "-e",
+        "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)",
+      ]);
+
+      const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+        (resolve) => {
+          child.on("exit", (code, signal) => resolve({ code, signal }));
+        },
+      );
+      const ready = new Promise<void>((resolve) => {
+        child.stdout.once("data", () => resolve());
+      });
+
+      await ready;
+      killChild(child, 100);
+
+      const { signal } = await exit;
+      expect(signal).toBe("SIGKILL");
+    },
+    10_000,
+  );
 });

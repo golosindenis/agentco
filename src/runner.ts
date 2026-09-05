@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { AgentRow } from "./types.js";
 
 export type RunResult =
@@ -20,6 +20,28 @@ export function buildArgs(agent: Pick<AgentRow, "turn_cap">): string[] {
 
 export const RUN_TIMEOUT_MS = 600_000; // 10 minutes
 export const MAX_OUTPUT_CHARS = 200_000;
+export const KILL_GRACE_MS = 2_000;
+
+/**
+ * SIGTERM, then SIGKILL if the child is still alive after the grace period.
+ * A child that ignores SIGTERM would otherwise keep running — and keep
+ * spending — after we have already reported the run as over.
+ */
+export function killChild(
+  child: ChildProcess,
+  graceMs: number = KILL_GRACE_MS,
+): void {
+  child.kill("SIGTERM");
+
+  const escalate = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  }, graceMs);
+  escalate.unref();
+
+  child.once("exit", () => clearTimeout(escalate));
+}
 
 export function interpretRun(
   code: number, stdout: string, stderr: string,
@@ -62,7 +84,7 @@ export function runAgent(
     let outputCapped = false;
 
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
+      killChild(child);
       finish({
         ok: false,
         reason: `${command} timed out after ${timeoutMs}ms`,
@@ -82,7 +104,7 @@ export function runAgent(
       stdout += String(d);
       if (stdout.length >= MAX_OUTPUT_CHARS) {
         outputCapped = true;
-        child.kill("SIGTERM");
+        killChild(child);
         finish({
           ok: false,
           reason: `${command} output exceeded ${MAX_OUTPUT_CHARS} chars`,
