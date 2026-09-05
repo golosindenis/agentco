@@ -53,7 +53,7 @@ a retailer costs the account.
 
 | Agent | Job | Output |
 |---|---|---|
-| Strategist | Picks the week's angles. Runs the `divergence` skill so output is not generic. | 5–7 angles |
+| Strategist | Picks the week's angles. Runs weekly (Monday), not daily. Runs the `divergence` skill so output is not generic. | 5–7 angles per week |
 | Writer | Turns an angle into a post/script/caption in Denis's voice. | Draft, queued for approval |
 | Chief of Staff | Assembles the morning brief. Does no work of its own. | One brief per day |
 
@@ -105,8 +105,12 @@ of how good the agents are.
 
 ## Data flow
 
-**Daily cycle.** Cron fires at 07:00. Strategist runs, proposes angles. Writer drafts from
-them. Chief of Staff assembles the brief. Denis clears the queue over coffee.
+**Weekly cycle.** Monday 07:00: the Strategist proposes the week's angles. Denis approves
+or declines them like any other draft, so a weak week is caught before seven posts are
+written from it.
+
+**Daily cycle.** 07:00: the Writer drafts from the approved angle bank. The Chief of Staff
+assembles the brief. Denis clears the queue over coffee. The Strategist does not run.
 
 **Task lifecycle:** `queued → claimed → running → drafted → pending_approval →
 approved | declined`, with `failed` reachable from `running`.
