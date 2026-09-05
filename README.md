@@ -116,6 +116,33 @@ Agents start at level 1 and draft only.
   sticks, capped at **30 rules**. At the cap nothing is appended and you are told
   to consolidate; the full history always goes to the `feedback` table.
 
+## Costs
+
+Every `draft_created` and `brief_created` row in `events` carries usage
+telemetry for that run: cost, input/output/cache token counts, duration,
+turn count, and model. `npm run costs` reads `events` and prints a plain-text
+report: a per-agent table (runs, total cost, average cost per run, total
+output tokens), a per-day table for the last 14 days, and a grand total with
+the run count and date range covered.
+
+```bash
+npm run costs
+```
+
+**The dollar figure is a list-price equivalent, not a bill.** It comes
+straight from the CLI's own `total_cost_usd` (`costBasis: "list"`). Denis
+runs these agents on a Claude subscription, so he is not charged per run —
+the number exists to compare agents against each other and to know what the
+same work would cost on the API, not as a spend to watch.
+
+**There is a fixed per-spawn overhead.** Each headless `claude` process
+re-creates Claude Code's own system prompt from scratch, cached: a
+measured "say OK" run cost about **$0.11** in cache tokens before any real
+work happened. That overhead is roughly constant regardless of how trivial
+or substantial the task is — it's the single most useful number for
+deciding whether a short, frequent agent run is worth its keep, versus one
+that does enough real work to amortize it.
+
 ## Two things that will confuse you otherwise
 
 **The Writer needs an approved angle bank.** A `daily_draft` task fails with a
@@ -132,7 +159,7 @@ autonomous action.
 ## Tests
 
 ```bash
-npm test          # 93 tests
+npm test          # 106 tests
 npm run typecheck
 ```
 
@@ -160,6 +187,7 @@ which those tests silently skip forever even when credentials are present.
 | `src/seed.ts` | Inserts the three v1 agents. |
 | `src/schedule.ts` | Pure. Calendar day → which tasks are due. |
 | `scripts/schedule.ts` | Queues today's due tasks idempotently. |
+| `scripts/costs.ts` | Pure report builder + `npm run costs` — reads `events`, prints cost/usage. |
 | `scripts/daily.sh` | What `launchd` runs: schedule, then worker, logged. |
 | `launchd/com.denis.agentco.daily.plist` | The 07:00 LaunchAgent. See "Schedule". |
 

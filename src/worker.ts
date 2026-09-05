@@ -166,7 +166,22 @@ export async function processOne(
     draftWritten = true;
     await deps.logEvent(
       isBrief ? "brief_created" : "draft_created",
-      { chars: run.body.length, dryRun }, agent.id, task.id,
+      {
+        chars: run.body.length,
+        dryRun,
+        // List-price-equivalent cost/usage telemetry from the run (see
+        // RunUsage in runner.ts) — makes an expensive agent visible in
+        // `events` instead of a surprise. Not a bill: costBasis is "list".
+        costUsd: run.usage.costUsd,
+        inputTokens: run.usage.inputTokens,
+        outputTokens: run.usage.outputTokens,
+        cacheReadTokens: run.usage.cacheReadTokens,
+        cacheCreationTokens: run.usage.cacheCreationTokens,
+        durationMs: run.usage.durationMs,
+        numTurns: run.usage.numTurns,
+        model: run.usage.model,
+      },
+      agent.id, task.id,
     );
     await deps.finishTask(task.id, "done");
     return "produced";

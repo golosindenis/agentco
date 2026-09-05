@@ -25,12 +25,40 @@ import {
   buildArgs,
   buildChildEnv,
   interpretRun,
+  parseRunJson,
   runAgent,
   killChild,
   MAX_OUTPUT_CHARS,
 } from "../src/runner.js";
 
 const agent = { turn_cap: 8, instructions: "You are a helpful agent." } as any;
+
+// A realistic full envelope shaped like the verified CLI contract in the
+// spec: `claude -p --output-format json` against the installed CLI.
+function fullEnvelope(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    result: "  a draft body  ",
+    is_error: false,
+    subtype: "success",
+    num_turns: 3,
+    duration_ms: 4200,
+    duration_api_ms: 3900,
+    total_cost_usd: 0.1234,
+    usage: {
+      input_tokens: 10,
+      output_tokens: 20,
+      cache_creation_input_tokens: 32000,
+      cache_read_input_tokens: 31000,
+    },
+    modelUsage: {
+      "claude-sonnet-5": { costUSD: 0.1234, costBasis: "list" },
+    },
+    session_id: "abc123",
+    stop_reason: "end_turn",
+    permission_denials: [],
+    ...overrides,
+  };
+}
 
 describe("buildArgs", () => {
   it("passes print mode and the agent's turn cap", () => {
@@ -39,13 +67,91 @@ describe("buildArgs", () => {
     expect(args).toContain("--max-turns");
     expect(args[args.indexOf("--max-turns") + 1]).toBe("8");
   });
+
+  it("requests JSON output so usage/cost telemetry is parseable", () => {
+    const args = buildArgs(agent);
+    expect(args).toContain("--output-format");
+    expect(args[args.indexOf("--output-format") + 1]).toBe("json");
+  });
+});
+
+describe("parseRunJson", () => {
+  it("maps a realistic full JSON envelope to body and every usage field", () => {
+    const r = parseRunJson(JSON.stringify(fullEnvelope()));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.body).toBe("a draft body");
+    expect(r.usage).toEqual({
+      costUsd: 0.1234,
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 31000,
+      cacheCreationTokens: 32000,
+      durationMs: 4200,
+      numTurns: 3,
+      model: "claude-sonnet-5",
+    });
+  });
+
+  it("fails with a reason naming the parse failure on malformed JSON", () => {
+    const r = parseRunJson("not json at all {{{");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason.toLowerCase()).toContain("json");
+  });
+
+  it("fails with the subtype in the reason when is_error is true", () => {
+    const r = parseRunJson(JSON.stringify(fullEnvelope({
+      is_error: true,
+      subtype: "error_max_turns",
+      result: "ran out of turns",
+    })));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toContain("error_max_turns");
+  });
+
+  it("defaults missing usage fields to 0 instead of throwing", () => {
+    const r = parseRunJson(JSON.stringify({
+      result: "a fine draft body long enough to pass",
+      is_error: false,
+    }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.usage).toEqual({
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      durationMs: 0,
+      numTurns: 0,
+      model: null,
+    });
+  });
+
+  it("distinguishes a missing result key from an empty-string result", () => {
+    const missing = parseRunJson(JSON.stringify(fullEnvelope({ result: undefined })));
+    expect(missing.ok).toBe(false);
+    if (missing.ok) return;
+    expect(missing.reason.toLowerCase()).toContain("missing");
+
+    const empty = parseRunJson(JSON.stringify(fullEnvelope({ result: "" })));
+    expect(empty.ok).toBe(false);
+    if (empty.ok) return;
+    expect(empty.reason.toLowerCase()).toContain("empty");
+    expect(empty.reason.toLowerCase()).not.toContain("missing");
+  });
 });
 
 describe("interpretRun", () => {
-  it("returns the trimmed stdout on success", () => {
-    expect(interpretRun(0, "  a draft body  ", "")).toEqual({
-      ok: true, body: "a draft body",
-    });
+  it("returns the trimmed stdout body and mapped usage on success", () => {
+    const r = interpretRun(0, JSON.stringify(fullEnvelope()), "");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.body).toBe("a draft body");
+    expect(r.usage.costUsd).toBe(0.1234);
+    expect(r.usage.model).toBe("claude-sonnet-5");
   });
 
   it("fails on a non-zero exit code and keeps stderr", () => {
@@ -58,6 +164,12 @@ describe("interpretRun", () => {
     const r = interpretRun(0, "   ", "");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain("no output");
+  });
+
+  it("fails when stdout is non-empty but not valid JSON", () => {
+    const r = interpretRun(0, "plain text, not json", "");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason.toLowerCase()).toContain("json");
   });
 });
 
@@ -200,13 +312,18 @@ describe("runAgent process handling", () => {
     10_000,
   );
 
-  it("resolves ok:true with the trimmed stdout on a normal successful run", async () => {
+  it("resolves ok:true with the trimmed stdout body and usage on a normal successful run", async () => {
+    const envelope = JSON.stringify(fullEnvelope());
     const result = await runAgent(agent, "hello", {
       command: "node",
-      args: ["-e", "console.log('  a draft body  ')"],
+      args: ["-e", `console.log(${JSON.stringify(envelope)})`],
     });
 
-    expect(result).toEqual({ ok: true, body: "a draft body" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.body).toBe("a draft body");
+    expect(result.usage.costUsd).toBe(0.1234);
+    expect(result.usage.model).toBe("claude-sonnet-5");
   });
 
   it("resolves exactly once with a could-not-spawn reason when the command does not exist", async () => {
