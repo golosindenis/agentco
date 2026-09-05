@@ -46,34 +46,62 @@ export async function processOne(
   const task = await deps.claimNextTask();
   if (!task) return "idle";
 
-  const agent = await deps.getAgent(task.agent_id);
+  try {
+    const agent = await deps.getAgent(task.agent_id);
 
-  const pending = await deps.countPendingDrafts(agent.id);
-  if (!canProduce(pending)) {
-    await deps.logEvent("skipped_at_capacity", { pending }, agent.id, task.id);
+    const pending = await deps.countPendingDrafts(agent.id);
+    if (!canProduce(pending)) {
+      // A capacity skip marks the task "done", not "failed" or requeued. These
+      // are recurring scheduled tasks: tomorrow's run creates a fresh occurrence
+      // regardless. Requeuing a skipped occurrence would just rebuild the same
+      // backlog that this capacity check exists to prevent, so the occurrence
+      // is dropped on purpose.
+      await deps.logEvent("skipped_at_capacity", { pending }, agent.id, task.id);
+      await deps.finishTask(task.id, "done");
+      return "skipped_at_capacity";
+    }
+
+    const run = await deps.runAgent(agent, TASK_PROMPTS[task.kind]);
+    if (!run.ok) {
+      await deps.logEvent("run_failed", { reason: run.reason }, agent.id, task.id);
+      await deps.finishTask(task.id, "failed", run.reason);
+      return "failed";
+    }
+
+    const previous = await deps.latestDraftBody(agent.id);
+    const check = assertUsableOutput(run.body, previous);
+    if (!check.ok) {
+      await deps.logEvent("output_rejected", { reason: check.reason }, agent.id, task.id);
+      await deps.finishTask(task.id, "failed", check.reason);
+      return "failed";
+    }
+
+    await deps.insertDraft(task.id, agent.id, run.body, dryRun);
+    await deps.logEvent("draft_created", { chars: run.body.length, dryRun }, agent.id, task.id);
     await deps.finishTask(task.id, "done");
-    return "skipped_at_capacity";
-  }
-
-  const run = await deps.runAgent(agent, TASK_PROMPTS[task.kind]);
-  if (!run.ok) {
-    await deps.logEvent("run_failed", { reason: run.reason }, agent.id, task.id);
-    await deps.finishTask(task.id, "failed", run.reason);
+    return "produced";
+  } catch (err) {
+    // A claimed task flips its row to "running" and nothing else ever reclaims
+    // it (claim_next_task() only selects "queued" rows) — so any unhandled
+    // throw here (e.g. a transient network blip against Supabase) would leave
+    // the row running forever. Catch everything past the claim and force the
+    // task to a terminal, human-visible state instead. finishTask/logEvent can
+    // themselves throw (that's how we got here), so guard them too — a failure
+    // while recording the failure must not mask the original error.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[worker] task ${task.id} crashed:`, err);
+    try {
+      await deps.finishTask(task.id, "failed", message);
+    } catch (finishErr) {
+      console.error(`[worker] finishTask itself threw while recording the failure for ${task.id}:`, finishErr);
+    }
+    try {
+      await deps.logEvent("run_crashed", { error: message }, task.agent_id, task.id);
+    } catch (logErr) {
+      console.error(`[worker] logEvent itself threw while recording the crash for ${task.id}:`, logErr);
+    }
     return "failed";
   }
-
-  const previous = await deps.latestDraftBody(agent.id);
-  const check = assertUsableOutput(run.body, previous);
-  if (!check.ok) {
-    await deps.logEvent("output_rejected", { reason: check.reason }, agent.id, task.id);
-    await deps.finishTask(task.id, "failed", check.reason);
-    return "failed";
-  }
-
-  await deps.insertDraft(task.id, agent.id, run.body, dryRun);
-  await deps.logEvent("draft_created", { chars: run.body.length, dryRun }, agent.id, task.id);
-  await deps.finishTask(task.id, "done");
-  return "produced";
 }
 
 /** Drains every due task, then exits. Cron runs this; it is not a daemon. */

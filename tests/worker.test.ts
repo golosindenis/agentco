@@ -62,4 +62,31 @@ describe("processOne", () => {
     await processOne(d, true);
     expect(d.insertDraft).toHaveBeenCalledWith("t1", "a1", "A perfectly good draft body.", true);
   });
+
+  it("marks the task failed instead of throwing when the agent run throws", async () => {
+    const d = deps({
+      runAgent: vi.fn(async (): Promise<RunResult> => { throw new Error("transient network blip"); }),
+    });
+    await expect(processOne(d, false)).resolves.toBe("failed");
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
+  });
+
+  it("marks the task failed instead of throwing when a throw happens after the draft is written", async () => {
+    const d = deps({
+      logEvent: vi.fn(async (kind: string) => {
+        if (kind === "draft_created") throw new Error("log sink unavailable");
+      }),
+    });
+    await expect(processOne(d, false)).resolves.toBe("failed");
+    expect(d.insertDraft).toHaveBeenCalled();
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", expect.any(String));
+  });
+
+  it("still resolves to failed when finishTask itself throws while recording the failure", async () => {
+    const d = deps({
+      runAgent: vi.fn(async (): Promise<RunResult> => { throw new Error("transient network blip"); }),
+      finishTask: vi.fn(async () => { throw new Error("db unreachable"); }),
+    });
+    await expect(processOne(d, false)).resolves.toBe("failed");
+  });
 });
