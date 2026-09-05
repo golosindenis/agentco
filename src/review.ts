@@ -14,12 +14,21 @@ export const MAX_RULES = 30;
  * spaces, then the result is trimmed — because countRules counts non-empty
  * lines, and a multi-line reason would otherwise inflate the count and
  * corrupt the cap. Does not add a leading blank line when `instructions` is
- * empty, and does not duplicate a rule that is already present verbatim.
+ * empty.
+ *
+ * Duplicate detection compares case-insensitively with internal whitespace
+ * collapsed on both sides, so "too salesy", "Too SALESY" and "too   salesy"
+ * are all recognised as the same rule — otherwise near-duplicates burn cap
+ * capacity on what is really one correction repeated. The comparison is
+ * normalise-only: whichever rule is actually stored (existing line, or the
+ * new one when it is not a duplicate) keeps its original casing.
  */
 export function appendRule(instructions: string, rule: string): string {
   const normalised = rule.replace(/\s+/g, " ").trim();
+  const key = normalised.toLowerCase();
   const lines = instructions.split("\n").map((l) => l.trim()).filter(Boolean);
-  if (lines.includes(normalised)) return instructions;
+  const isDuplicate = lines.some((l) => l.replace(/\s+/g, " ").toLowerCase() === key);
+  if (isDuplicate) return instructions;
   return instructions === "" ? normalised : `${instructions}\n${normalised}`;
 }
 
@@ -33,28 +42,50 @@ export type ReviewDeps = {
   saveInstructions: (agentId: string, instructions: string) => Promise<void>;
 };
 
+export type VerdictResult = {
+  state: AgentState;
+  /** true when this decline's rule was written into the agent's instructions */
+  ruleAppended: boolean;
+  /** rule count after this verdict */
+  ruleCount: number;
+};
+
 export async function recordVerdict(
   deps: ReviewDeps,
   draftId: string,
   agentId: string,
   verdict: Verdict,
   reason?: string,
-): Promise<AgentState> {
+): Promise<VerdictResult> {
   await deps.insertApproval(draftId, verdict, reason);
   await deps.setDraftStatus(draftId, verdict === "declined" ? "declined" : "approved");
 
-  if (verdict === "declined" && reason) {
-    await deps.insertFeedback(agentId, reason);
+  // A reason that is empty after trimming counts as no reason at all: no
+  // feedback row, no rule. Guarding on the trimmed value here (rather than
+  // trusting the caller to have trimmed) matters because recordVerdict is
+  // exported and callers other than the CLI may not pre-trim.
+  const trimmedReason = reason?.trim();
+
+  let ruleAppended = false;
+  let ruleCount = 0;
+
+  if (verdict === "declined" && trimmedReason) {
+    await deps.insertFeedback(agentId, trimmedReason);
 
     const instructions = await deps.loadInstructions(agentId);
-    if (countRules(instructions) < MAX_RULES) {
-      await deps.saveInstructions(agentId, appendRule(instructions, reason));
+    const currentCount = countRules(instructions);
+    if (currentCount < MAX_RULES) {
+      await deps.saveInstructions(agentId, appendRule(instructions, trimmedReason));
+      ruleAppended = true;
+      ruleCount = currentCount + 1;
+    } else {
+      ruleCount = currentCount;
     }
   }
 
   const next = applyVerdict(await deps.loadState(agentId), verdict);
   await deps.saveState(agentId, next);
-  return next;
+  return { state: next, ruleAppended, ruleCount };
 }
 
 /**

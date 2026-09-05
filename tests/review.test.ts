@@ -18,9 +18,9 @@ const deps = (over: Partial<ReviewDeps> = {}): ReviewDeps => ({
 describe("recordVerdict", () => {
   it("promotes on the fifth clean approval and saves the new standing", async () => {
     const d = deps();
-    const next = await recordVerdict(d, "d1", "a1", "approved");
-    expect(next.level).toBe(2);
-    expect(d.saveState).toHaveBeenCalledWith("a1", next);
+    const result = await recordVerdict(d, "d1", "a1", "approved");
+    expect(result.state.level).toBe(2);
+    expect(d.saveState).toHaveBeenCalledWith("a1", result.state);
     expect(d.setDraftStatus).toHaveBeenCalledWith("d1", "approved");
   });
 
@@ -62,6 +62,13 @@ describe("recordVerdict", () => {
     expect(d.saveInstructions).toHaveBeenCalledWith("a1", "rule one\nrule two\ntoo salesy");
   });
 
+  it("returns ruleAppended: true and the incremented rule count for a decline below the cap", async () => {
+    const d = deps({ loadInstructions: vi.fn(async () => "rule one\nrule two") });
+    const result = await recordVerdict(d, "d1", "a1", "declined", "too salesy");
+    expect(result.ruleAppended).toBe(true);
+    expect(result.ruleCount).toBe(3);
+  });
+
   it("does not touch instructions on an approval", async () => {
     const d = deps();
     await recordVerdict(d, "d1", "a1", "approved");
@@ -72,9 +79,19 @@ describe("recordVerdict", () => {
     const { MAX_RULES } = await import("../src/review.js");
     const atCap = Array.from({ length: MAX_RULES }, (_, i) => `rule ${i}`).join("\n");
     const d = deps({ loadInstructions: vi.fn(async () => atCap) });
-    await recordVerdict(d, "d1", "a1", "declined", "one more thing");
+    const result = await recordVerdict(d, "d1", "a1", "declined", "one more thing");
     expect(d.saveInstructions).not.toHaveBeenCalled();
     expect(d.insertFeedback).toHaveBeenCalledWith("a1", "one more thing");
+    expect(result.ruleAppended).toBe(false);
+    expect(result.ruleCount).toBe(MAX_RULES);
+  });
+
+  it("treats a whitespace-only decline reason as no reason at all", async () => {
+    const d = deps();
+    const result = await recordVerdict(d, "d1", "a1", "declined", "   ");
+    expect(d.insertFeedback).not.toHaveBeenCalled();
+    expect(d.saveInstructions).not.toHaveBeenCalled();
+    expect(result.ruleAppended).toBe(false);
   });
 
   it("normalises a multi-line decline reason to a single rule line", async () => {
@@ -107,5 +124,18 @@ describe("appendRule", () => {
   it("does not duplicate a rule already present verbatim", async () => {
     const { appendRule } = await import("../src/review.js");
     expect(appendRule("rule one\nrule two", "rule two")).toBe("rule one\nrule two");
+  });
+
+  it("treats near-duplicate rules (case and internal whitespace) as the same rule", async () => {
+    const { appendRule } = await import("../src/review.js");
+    const withFirst = appendRule("", "too salesy");
+    const withSecond = appendRule(withFirst, "Too Salesy");
+    const withThird = appendRule(withSecond, "too   salesy");
+    expect(withThird).toBe(withFirst);
+  });
+
+  it("stores the rule with its original casing", async () => {
+    const { appendRule } = await import("../src/review.js");
+    expect(appendRule("", "Too Salesy")).toBe("Too Salesy");
   });
 });
