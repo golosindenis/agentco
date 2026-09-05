@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { vi, describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// These tests are live network round trips to Supabase (ap-northeast-2) and
+// several of them make a handful of sequential calls. They run alongside
+// suites that spawn real child processes, so under full-suite load the 5s
+// default trips on latency rather than on anything being wrong — the suite
+// passes in isolation and failed only when run with everything else. The
+// timeout here is not an assertion about correctness; give it real headroom.
+vi.setConfig({ testTimeout: 30_000 });
+
 
 // src/db.ts throws at import time if SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
 // are missing (by design — see the brief). The Supabase project for this repo
