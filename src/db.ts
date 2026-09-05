@@ -29,9 +29,22 @@ export async function getAgent(id: string): Promise<AgentRow> {
   return data as AgentRow;
 }
 
-export async function countPendingDrafts(agentId: string): Promise<number> {
+/**
+ * A dry run's output must never mix with real drafts (see the `drafts_dryrun`
+ * comment in the migration) — and that has to hold for every read as well as
+ * the write. `insertDraft` alone switching tables on `dryRun` while these two
+ * still always read `drafts` would mean a dry run computes backpressure from
+ * real pending drafts and compares its own output against real ones: it
+ * would never actually exercise the dry-run path it exists to test. All
+ * three go through this one helper so they can't drift apart again.
+ */
+function table(dryRun: boolean): "drafts" | "drafts_dryrun" {
+  return dryRun ? "drafts_dryrun" : "drafts";
+}
+
+export async function countPendingDrafts(agentId: string, dryRun: boolean): Promise<number> {
   const { count, error } = await supabase
-    .from("drafts")
+    .from(table(dryRun))
     .select("id", { count: "exact", head: true })
     .eq("agent_id", agentId)
     .eq("status", "pending");
@@ -39,9 +52,9 @@ export async function countPendingDrafts(agentId: string): Promise<number> {
   return count ?? 0;
 }
 
-export async function latestDraftBody(agentId: string): Promise<string | null> {
+export async function latestDraftBody(agentId: string, dryRun: boolean): Promise<string | null> {
   const { data, error } = await supabase
-    .from("drafts")
+    .from(table(dryRun))
     .select("body")
     .eq("agent_id", agentId)
     .order("created_at", { ascending: false })
@@ -74,9 +87,8 @@ export async function latestApprovedDraftBody(kind: TaskKind): Promise<string | 
 export async function insertDraft(
   taskId: string, agentId: string, body: string, dryRun: boolean,
 ): Promise<void> {
-  const table = dryRun ? "drafts_dryrun" : "drafts";
   const { error } = await supabase
-    .from(table)
+    .from(table(dryRun))
     .insert({ task_id: taskId, agent_id: agentId, body });
   if (error) throw new Error(`insertDraft failed: ${error.message}`);
 }
@@ -89,6 +101,82 @@ export async function finishTask(
     .update({ state, error: error ?? null, finished_at: new Date().toISOString() })
     .eq("id", id);
   if (e) throw new Error(`finishTask failed: ${e.message}`);
+}
+
+export type BriefFacts = {
+  since: string;
+  tasksByState: Record<string, number>;
+  failures: { agent: string; kind: string; error: string }[];
+  draftsCreated: number;
+  pendingByAgent: { agent: string; pending: number }[];
+};
+
+/**
+ * Raw material for the morning brief, over the trailing 24 hours: task
+ * outcomes, failures, drafts written, and what is currently waiting on Denis
+ * per agent. `runAgent` hands the brief agent nothing but its instructions
+ * and the task prompt (see worker.ts) — it cannot query anything itself — so
+ * this is the only source of real numbers it has. Its own seeded
+ * instructions say never to fabricate; without this, a bare prompt and a
+ * turn cap is a recipe for it inventing the brief instead.
+ */
+export async function gatherBriefFacts(): Promise<BriefFacts> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: recentTasks, error: tasksErr } = await supabase
+    .from("tasks")
+    .select("state")
+    .gte("created_at", since);
+  if (tasksErr) throw new Error(`gatherBriefFacts (tasks) failed: ${tasksErr.message}`);
+  const tasksByState: Record<string, number> = {};
+  for (const row of (recentTasks ?? []) as { state: string }[]) {
+    tasksByState[row.state] = (tasksByState[row.state] ?? 0) + 1;
+  }
+
+  const { data: failedTasks, error: failuresErr } = await supabase
+    .from("tasks")
+    .select("kind, error, agents(display_name)")
+    .eq("state", "failed")
+    .gte("finished_at", since);
+  if (failuresErr) throw new Error(`gatherBriefFacts (failures) failed: ${failuresErr.message}`);
+  const failures = ((failedTasks ?? []) as unknown as
+    { kind: string; error: string | null; agents: { display_name: string } | null }[]
+  ).map((row) => ({
+    agent: row.agents?.display_name ?? "unknown",
+    kind: row.kind,
+    error: row.error ?? "",
+  }));
+
+  const { count: draftsCreated, error: draftsErr } = await supabase
+    .from("drafts")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", since);
+  if (draftsErr) throw new Error(`gatherBriefFacts (drafts) failed: ${draftsErr.message}`);
+
+  const { data: pendingDrafts, error: pendingErr } = await supabase
+    .from("drafts")
+    .select("agent_id, agents(display_name)")
+    .eq("status", "pending");
+  if (pendingErr) throw new Error(`gatherBriefFacts (pending) failed: ${pendingErr.message}`);
+  const pendingCounts = new Map<string, { agent: string; pending: number }>();
+  for (const row of (pendingDrafts ?? []) as unknown as
+    { agent_id: string; agents: { display_name: string } | null }[]
+  ) {
+    const existing = pendingCounts.get(row.agent_id);
+    if (existing) {
+      existing.pending += 1;
+    } else {
+      pendingCounts.set(row.agent_id, { agent: row.agents?.display_name ?? "unknown", pending: 1 });
+    }
+  }
+
+  return {
+    since,
+    tasksByState,
+    failures,
+    draftsCreated: draftsCreated ?? 0,
+    pendingByAgent: [...pendingCounts.values()],
+  };
 }
 
 export async function logEvent(

@@ -2,13 +2,23 @@ import { describe, it, expect, vi } from "vitest";
 import { processOne } from "../src/worker.js";
 import type { WorkerDeps } from "../src/worker.js";
 import type { RunResult } from "../src/runner.js";
+import type { BriefFacts } from "../src/db.js";
 
 const task = { id: "t1", agent_id: "a1", kind: "daily_draft", state: "running",
                due_at: "", error: null } as any;
 const weeklyTask = { ...task, kind: "weekly_angles" };
+const briefTask = { ...task, kind: "brief" };
 const agent = { id: "a1", key: "writer", display_name: "Writer", department: "Growth",
                 level: 1, max_level: 4, streak: 0, recent_verdicts: [],
                 instructions: "You are the Writer.", turn_cap: 8, enabled: true } as any;
+
+const defaultBriefFacts: BriefFacts = {
+  since: "2020-01-01T00:00:00.000Z",
+  tasksByState: {},
+  failures: [],
+  draftsCreated: 0,
+  pendingByAgent: [],
+};
 
 const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   claimNextTask: vi.fn(async () => task),
@@ -19,6 +29,7 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   insertDraft: vi.fn(async () => {}),
   finishTask: vi.fn(async () => {}),
   logEvent: vi.fn(async () => {}),
+  gatherBriefFacts: vi.fn(async () => defaultBriefFacts),
   runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "A perfectly good draft body." })),
   ...over,
 });
@@ -136,6 +147,49 @@ describe("processOne", () => {
     const d = deps({ claimNextTask: vi.fn(async () => weeklyTask) });
     expect(await processOne(d, false)).toBe("produced");
     expect(d.latestApprovedDraftBody).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a brief task whose output repeats the previous brief verbatim", async () => {
+    const d = deps({
+      claimNextTask: vi.fn(async () => briefTask),
+      latestDraftBody: vi.fn(async () => "Nothing ran overnight."),
+      runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "Nothing ran overnight." })),
+    });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.insertDraft).toHaveBeenCalledWith("t1", "a1", "Nothing ran overnight.", false);
+  });
+
+  it("passes the gathered brief facts into the prompt for a brief task", async () => {
+    const facts: BriefFacts = {
+      since: "2026-09-04T09:00:00.000Z",
+      tasksByState: { done: 3, failed: 1 },
+      failures: [{ agent: "Writer", kind: "daily_draft", error: "boom" }],
+      draftsCreated: 2,
+      pendingByAgent: [{ agent: "Writer", pending: 1 }],
+    };
+    const d = deps({
+      claimNextTask: vi.fn(async () => briefTask),
+      gatherBriefFacts: vi.fn(async () => facts),
+    });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.gatherBriefFacts).toHaveBeenCalled();
+    const call = (d.runAgent as any).mock.calls[0];
+    expect(call[1]).toContain("draftsCreated");
+    expect(call[1]).toContain("Writer");
+    expect(call[1]).toContain("boom");
+  });
+
+  it("does not call gatherBriefFacts for a non-brief task", async () => {
+    const d = deps();
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.gatherBriefFacts).not.toHaveBeenCalled();
+  });
+
+  it("passes the dry-run flag through to countPendingDrafts and latestDraftBody", async () => {
+    const d = deps();
+    expect(await processOne(d, true)).toBe("produced");
+    expect(d.countPendingDrafts).toHaveBeenCalledWith("a1", true);
+    expect(d.latestDraftBody).toHaveBeenCalledWith("a1", true);
   });
 
   it("skips a disabled agent's task without spawning the agent", async () => {

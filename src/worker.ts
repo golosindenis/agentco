@@ -4,6 +4,7 @@ import { TASK_PROMPTS } from "./prompts.js";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
+import type { BriefFacts } from "./db.js";
 
 export type WorkerOutcome =
   | "idle" | "produced" | "skipped_at_capacity" | "skipped_disabled" | "failed";
@@ -11,12 +12,13 @@ export type WorkerOutcome =
 export type WorkerDeps = {
   claimNextTask: () => Promise<TaskRow | null>;
   getAgent: (id: string) => Promise<AgentRow>;
-  countPendingDrafts: (agentId: string) => Promise<number>;
-  latestDraftBody: (agentId: string) => Promise<string | null>;
+  countPendingDrafts: (agentId: string, dryRun: boolean) => Promise<number>;
+  latestDraftBody: (agentId: string, dryRun: boolean) => Promise<string | null>;
   latestApprovedDraftBody: (kind: TaskKind) => Promise<string | null>;
   insertDraft: (taskId: string, agentId: string, body: string, dryRun: boolean) => Promise<void>;
   finishTask: (id: string, state: "done" | "failed", error?: string) => Promise<void>;
   logEvent: (kind: string, detail: Record<string, unknown>, agentId?: string, taskId?: string) => Promise<void>;
+  gatherBriefFacts: () => Promise<BriefFacts>;
   runAgent: typeof runAgent;
 };
 
@@ -38,6 +40,7 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
     insertDraft: db.insertDraft,
     finishTask: db.finishTask,
     logEvent: db.logEvent,
+    gatherBriefFacts: db.gatherBriefFacts,
     runAgent,
   };
 }
@@ -74,7 +77,7 @@ export async function processOne(
       return "skipped_disabled";
     }
 
-    const pending = await deps.countPendingDrafts(agent.id);
+    const pending = await deps.countPendingDrafts(agent.id, dryRun);
     if (!canProduce(pending)) {
       // A capacity skip marks the task "done", not "failed" or requeued. These
       // are recurring scheduled tasks: tomorrow's run creates a fresh occurrence
@@ -103,6 +106,16 @@ export async function processOne(
       }
       taskPrompt = `${taskPrompt}\n\n## Approved angle bank\n\n${angleBank}`;
     }
+    if (task.kind === "brief") {
+      // The brief has nothing to draw on besides its own instructions and
+      // this bare task prompt (see runAgent) — it cannot query anything
+      // itself. Its own seeded instructions say never to fabricate, so
+      // without real numbers here it is stuck between inventing the brief
+      // and returning nothing useful. gatherBriefFacts is its only source
+      // of ground truth.
+      const facts = await deps.gatherBriefFacts();
+      taskPrompt = `${taskPrompt}\n\n## Facts gathered from the last 24 hours\n\n${JSON.stringify(facts, null, 2)}`;
+    }
 
     const run = await deps.runAgent(agent, taskPrompt);
     if (!run.ok) {
@@ -111,7 +124,15 @@ export async function processOne(
       return "failed";
     }
 
-    const previous = await deps.latestDraftBody(agent.id);
+    // The identical-output guard below exists to catch a run that quietly
+    // did nothing new. For the morning brief that comparison is actively
+    // wrong: a quiet night legitimately produces the same
+    // "Nothing ran overnight." text two mornings running, and the brief must
+    // always render — a silent morning must never be ambiguous between
+    // "nothing was due" and "the worker died". So a brief task is never
+    // compared against its previous output; the empty and too-short checks
+    // in assertUsableOutput still apply to it.
+    const previous = task.kind === "brief" ? null : await deps.latestDraftBody(agent.id, dryRun);
     const check = assertUsableOutput(run.body, previous);
     if (!check.ok) {
       await deps.logEvent("output_rejected", { reason: check.reason }, agent.id, task.id);

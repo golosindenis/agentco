@@ -40,6 +40,8 @@ export type ReviewDeps = {
   insertFeedback: (agentId: string, reason: string) => Promise<void>;
   loadInstructions: (agentId: string) => Promise<string>;
   saveInstructions: (agentId: string, instructions: string) => Promise<void>;
+  /** Whether an approval row already exists for this draft. */
+  hasApproval: (draftId: string) => Promise<boolean>;
 };
 
 export type VerdictResult = {
@@ -50,6 +52,27 @@ export type VerdictResult = {
   ruleCount: number;
 };
 
+/**
+ * Records one human verdict on a draft.
+ *
+ * Order matters here. The draft's status is set *last*, only after the
+ * approval row, feedback, instructions and ladder move have all landed. The
+ * old order set the draft's status right after inserting the approval row —
+ * so if anything after that (feedback, instructions, or the ladder's
+ * loadState/applyVerdict/saveState) threw on a transient Supabase blip, the
+ * draft was already retired (approved/declined) and so no longer matched the
+ * CLI's `status = 'pending'` query, while the ladder move — the entire
+ * mechanic this system runs on — silently never happened, with no way back
+ * in. Retiring the draft last means a mid-way failure leaves it `pending`,
+ * so the human sees it again and can re-verdict it.
+ *
+ * That re-verdict must not double-apply the parts that already succeeded
+ * (double feedback, a second ladder move) — `hasApproval` is what makes a
+ * retry safe: it is checked once, up front, and that single result gates
+ * both the approval/feedback/instructions block and the ladder block below,
+ * so a retry does only the one thing that didn't happen last time: setting
+ * the draft's status.
+ */
 export async function recordVerdict(
   deps: ReviewDeps,
   draftId: string,
@@ -57,35 +80,55 @@ export async function recordVerdict(
   verdict: Verdict,
   reason?: string,
 ): Promise<VerdictResult> {
-  await deps.insertApproval(draftId, verdict, reason);
-  await deps.setDraftStatus(draftId, verdict === "declined" ? "declined" : "approved");
-
-  // A reason that is empty after trimming counts as no reason at all: no
-  // feedback row, no rule. Guarding on the trimmed value here (rather than
-  // trusting the caller to have trimmed) matters because recordVerdict is
-  // exported and callers other than the CLI may not pre-trim.
-  const trimmedReason = reason?.trim();
+  const alreadyRecorded = await deps.hasApproval(draftId);
 
   let ruleAppended = false;
   let ruleCount = 0;
 
-  if (verdict === "declined" && trimmedReason) {
-    await deps.insertFeedback(agentId, trimmedReason);
+  if (!alreadyRecorded) {
+    await deps.insertApproval(draftId, verdict, reason);
 
-    const instructions = await deps.loadInstructions(agentId);
-    const currentCount = countRules(instructions);
-    if (currentCount < MAX_RULES) {
-      await deps.saveInstructions(agentId, appendRule(instructions, trimmedReason));
-      ruleAppended = true;
-      ruleCount = currentCount + 1;
-    } else {
-      ruleCount = currentCount;
+    // A reason that is empty after trimming counts as no reason at all: no
+    // feedback row, no rule. Guarding on the trimmed value here (rather than
+    // trusting the caller to have trimmed) matters because recordVerdict is
+    // exported and callers other than the CLI may not pre-trim.
+    const trimmedReason = reason?.trim();
+
+    if (verdict === "declined" && trimmedReason) {
+      await deps.insertFeedback(agentId, trimmedReason);
+
+      const instructions = await deps.loadInstructions(agentId);
+      const currentCount = countRules(instructions);
+      if (currentCount < MAX_RULES) {
+        // appendRule dedupes: a reason that already matches an existing rule
+        // (case- and whitespace-insensitively) comes back unchanged. Deriving
+        // ruleAppended/ruleCount from that actual result — rather than
+        // assuming the append always lands whenever under the cap — is what
+        // stops a duplicate decline from being reported as newly appended.
+        const updated = appendRule(instructions, trimmedReason);
+        ruleAppended = updated !== instructions;
+        if (ruleAppended) {
+          await deps.saveInstructions(agentId, updated);
+          ruleCount = countRules(updated);
+        } else {
+          ruleCount = currentCount;
+        }
+      } else {
+        ruleCount = currentCount;
+      }
     }
   }
 
-  const next = applyVerdict(await deps.loadState(agentId), verdict);
-  await deps.saveState(agentId, next);
-  return { state: next, ruleAppended, ruleCount };
+  let state: AgentState;
+  if (!alreadyRecorded) {
+    state = applyVerdict(await deps.loadState(agentId), verdict);
+    await deps.saveState(agentId, state);
+  } else {
+    state = await deps.loadState(agentId);
+  }
+
+  await deps.setDraftStatus(draftId, verdict === "declined" ? "declined" : "approved");
+  return { state, ruleAppended, ruleCount };
 }
 
 /**
@@ -143,6 +186,14 @@ export async function buildLiveReviewDeps(): Promise<ReviewDeps> {
       const { error } = await supabase.from("agents")
         .update({ instructions }).eq("id", agentId);
       if (error) throw new Error(error.message);
+    },
+    async hasApproval(draftId) {
+      const { count, error } = await supabase
+        .from("approvals")
+        .select("id", { count: "exact", head: true })
+        .eq("draft_id", draftId);
+      if (error) throw new Error(error.message);
+      return (count ?? 0) > 0;
     },
   };
 }

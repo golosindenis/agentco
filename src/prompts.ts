@@ -14,6 +14,10 @@ export const TASK_PROMPTS: Record<TaskKind, string> = {
     "only the post text, with no preamble, no options and no commentary.",
   brief:
     "Write this morning's brief: what ran overnight, what is waiting on Denis, " +
-    "and what failed. If nothing ran, say so explicitly rather than returning " +
-    "an empty brief. Keep it under 150 words.",
+    "and what failed. A section headed 'Facts gathered from the last 24 hours' " +
+    "is appended below this prompt — it is the only source of truth for this " +
+    "brief. Use only what is in it; do not invent, infer, or assume anything " +
+    "beyond those facts. If every count in it is zero, say plainly that " +
+    "nothing ran overnight rather than padding that out into a longer brief. " +
+    "Keep it under 150 words.",
 };

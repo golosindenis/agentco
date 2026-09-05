@@ -73,22 +73,25 @@ describe.skipIf(!hasCredentials)("db", () => {
       const { data: t } = await supabase.from("tasks")
         .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
 
-      expect(await countPendingDrafts(agentId)).toBe(0);
+      expect(await countPendingDrafts(agentId, false)).toBe(0);
       await insertDraft(t!.id, agentId, "A first draft body, long enough.", false);
-      expect(await countPendingDrafts(agentId)).toBe(1);
+      expect(await countPendingDrafts(agentId, false)).toBe(1);
     });
 
     it("returns the newest draft body", async () => {
-      expect(await latestDraftBody(agentId)).toContain("first draft body");
+      expect(await latestDraftBody(agentId, false)).toContain("first draft body");
     });
 
-    it("writes dry-run output to the scratch table only", async () => {
+    it("writes dry-run output to the scratch table only, and reads it back only through the dry-run flag", async () => {
       const { data: t } = await supabase.from("tasks")
         .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
 
-      const before = await countPendingDrafts(agentId);
+      const before = await countPendingDrafts(agentId, false);
+      const dryBefore = await countPendingDrafts(agentId, true);
       await insertDraft(t!.id, agentId, "A dry run body, long enough to pass.", true);
-      expect(await countPendingDrafts(agentId)).toBe(before);
+      expect(await countPendingDrafts(agentId, false)).toBe(before);
+      expect(await countPendingDrafts(agentId, true)).toBe(dryBefore + 1);
+      expect(await latestDraftBody(agentId, true)).toContain("dry run body");
 
       const { count } = await supabase.from("drafts_dryrun")
         .select("id", { count: "exact", head: true }).eq("agent_id", agentId);

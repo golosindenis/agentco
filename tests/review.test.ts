@@ -12,6 +12,7 @@ const deps = (over: Partial<ReviewDeps> = {}): ReviewDeps => ({
   insertFeedback: vi.fn(async () => {}),
   loadInstructions: vi.fn(async () => ""),
   saveInstructions: vi.fn(async () => {}),
+  hasApproval: vi.fn(async () => false),
   ...over,
 });
 
@@ -102,6 +103,30 @@ describe("recordVerdict", () => {
     const saved = (d.saveInstructions as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
     expect(saved).not.toMatch(/\n\n/);
     expect(countRules(saved)).toBe(countRules(before) + 1);
+  });
+
+  it("does not report a duplicate decline as an appended rule, and leaves the rule count unchanged", async () => {
+    const d = deps({ loadInstructions: vi.fn(async () => "rule one\ntoo salesy") });
+    const result = await recordVerdict(d, "d1", "a1", "declined", "Too   SALESY");
+    expect(d.saveInstructions).not.toHaveBeenCalled();
+    expect(result.ruleAppended).toBe(false);
+    expect(result.ruleCount).toBe(2);
+  });
+
+  it("leaves the draft status untouched when the ladder update throws mid-verdict", async () => {
+    const d = deps({ saveState: vi.fn(async () => { throw new Error("db blip"); }) });
+    await expect(recordVerdict(d, "d1", "a1", "approved")).rejects.toThrow("db blip");
+    expect(d.setDraftStatus).not.toHaveBeenCalled();
+  });
+
+  it("skips approval, feedback and the ladder on a retry, but still sets the draft status", async () => {
+    const d = deps({ hasApproval: vi.fn(async () => true) });
+    const result = await recordVerdict(d, "d1", "a1", "declined", "too salesy");
+    expect(d.insertApproval).not.toHaveBeenCalled();
+    expect(d.insertFeedback).not.toHaveBeenCalled();
+    expect(d.saveState).not.toHaveBeenCalled();
+    expect(d.setDraftStatus).toHaveBeenCalledWith("d1", "declined");
+    expect(result.ruleAppended).toBe(false);
   });
 });
 
