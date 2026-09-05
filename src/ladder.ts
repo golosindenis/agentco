@@ -36,9 +36,10 @@ export function applyVerdict(state: AgentState, verdict: Verdict): AgentState {
   const streak = state.streak + 1;
   if (streak >= PROMOTE_AFTER) {
     const ceiling = Math.min(4, state.maxLevel);
+    const level = state.level < ceiling ? state.level + 1 : state.level;
     return {
       ...state,
-      level: Math.min(ceiling, state.level + 1),
+      level,
       streak: 0,
       recent,
     };

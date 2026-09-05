@@ -29,6 +29,13 @@ describe("promotion", () => {
     s = applyVerdict(s, "approved");
     expect(s.level).toBe(4);
   });
+
+  it("never lowers the level when maxLevel was dropped below the current level", () => {
+    let s = fresh({ level: 3, maxLevel: 2, streak: 4 });
+    s = applyVerdict(s, "approved");
+    expect(s.level).toBe(3);
+    expect(s.streak).toBe(0);
+  });
 });
 
 describe("approve-after-edit", () => {
