@@ -10,6 +10,13 @@ export type AgentState = {
 export type TaskKind = "weekly_angles" | "daily_draft" | "brief";
 export type TaskState = "queued" | "running" | "done" | "failed";
 
+/** Task kinds whose approved drafts are things Denis actually publishes.
+ *  weekly_angles is deliberately absent: an angle bank is approved so the
+ *  Writer can read it, never to be posted. brief is absent too, though for a
+ *  different reason — briefs live in their own `briefs` table and are never
+ *  rows in `drafts` at all, so they could never appear here regardless. */
+export const POSTABLE_KINDS: TaskKind[] = ["daily_draft"];
+
 export type TaskRow = {
   id: string;
   agent_id: string;

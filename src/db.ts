@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
+import { POSTABLE_KINDS } from "./types.js";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -136,18 +137,25 @@ export async function latestBrief(): Promise<{ body: string; created_at: string 
  * of the last mile, letting `scripts/drafts.ts` show Denis the text he
  * approved so he can paste it somewhere himself.
  *
- * `drafts.agent_id` is a single (to-one) FK to agents, so — like
- * `latestApprovedDraftBody` above — this is one embedded select
- * (`agents(display_name)`) rather than a second round trip per draft.
+ * Restricted to `POSTABLE_KINDS`: an approved draft's task kind must be one
+ * Denis actually posts. Without this, a weekly_angles draft — approved only
+ * so the Writer can read it as input, never something Denis pastes anywhere
+ * — would sit in this queue forever, since it is approved and never gets a
+ * `posted_at`. `drafts.task_id` is a single (to-one) FK to tasks, so this
+ * filter is the same embedded-select join `latestApprovedDraftBody` above
+ * uses — `tasks!inner(kind)` — combined here with the existing
+ * `agents(display_name)` join (`drafts.agent_id` is also to-one) in one
+ * round trip.
  */
 export async function approvedUnpostedDrafts(): Promise<
   { id: string; agent: string; body: string; createdAt: string }[]
 > {
   const { data, error } = await supabase
     .from("drafts")
-    .select("id, body, created_at, agents(display_name)")
+    .select("id, body, created_at, agents(display_name), tasks!inner(kind)")
     .eq("status", "approved")
     .is("posted_at", null)
+    .in("tasks.kind", POSTABLE_KINDS)
     .order("created_at", { ascending: true });
   if (error) throw new Error(`approvedUnpostedDrafts failed: ${error.message}`);
 

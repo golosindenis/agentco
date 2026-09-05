@@ -180,5 +180,37 @@ describe.skipIf(!hasCredentials)("db", () => {
       expect(drafts.some((d) => d.id === pending!.id)).toBe(false);
       expect(drafts.some((d) => d.id === declined!.id)).toBe(false);
     });
+
+    it("lists an approved daily_draft but never an approved weekly_angles, and markPosted still drops the daily_draft", async () => {
+      const { data: dailyTask } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      const { data: dailyDraft } = await supabase.from("drafts")
+        .insert({
+          task_id: dailyTask!.id, agent_id: agentId,
+          body: "The Writer's approved, unposted post.", status: "approved",
+        })
+        .select().single();
+
+      const { data: anglesTask } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "weekly_angles" }).select().single();
+      const { data: anglesDraft } = await supabase.from("drafts")
+        .insert({
+          task_id: anglesTask!.id, agent_id: agentId,
+          body: "1. An approved angle bank, never posted.", status: "approved",
+        })
+        .select().single();
+
+      const before = await approvedUnpostedDrafts();
+      expect(before.some((d) => d.id === dailyDraft!.id)).toBe(true);
+      expect(before.some((d) => d.id === anglesDraft!.id)).toBe(false);
+
+      await markPosted(dailyDraft!.id);
+
+      const after = await approvedUnpostedDrafts();
+      expect(after.some((d) => d.id === dailyDraft!.id)).toBe(false);
+      // The angle bank was never postable, so it must still be absent —
+      // markPosted on the daily draft must not have touched it.
+      expect(after.some((d) => d.id === anglesDraft!.id)).toBe(false);
+    });
   });
 });
