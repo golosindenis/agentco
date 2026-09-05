@@ -18,6 +18,9 @@ export function buildArgs(agent: Pick<AgentRow, "turn_cap">): string[] {
   return ["--print", "--max-turns", String(agent.turn_cap)];
 }
 
+export const RUN_TIMEOUT_MS = 600_000; // 10 minutes
+export const MAX_OUTPUT_CHARS = 200_000;
+
 export function interpretRun(
   code: number, stdout: string, stderr: string,
 ): RunResult {
@@ -31,7 +34,11 @@ export function interpretRun(
   return { ok: true, body };
 }
 
-export function runAgent(agent: AgentRow, taskPrompt: string): Promise<RunResult> {
+export function runAgent(
+  agent: AgentRow,
+  taskPrompt: string,
+  opts: { command?: string; args?: string[]; timeoutMs?: number } = {},
+): Promise<RunResult> {
   const prompt = [
     agent.instructions.trim(),
     "",
@@ -40,19 +47,58 @@ export function runAgent(agent: AgentRow, taskPrompt: string): Promise<RunResult
     taskPrompt.trim(),
   ].join("\n");
 
+  const command = opts.command ?? "claude";
+  const args = opts.args ?? buildArgs(agent);
+  const timeoutMs = opts.timeoutMs ?? RUN_TIMEOUT_MS;
+
   return new Promise((resolve) => {
-    const child = spawn("claude", buildArgs(agent), {
+    const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
+    let settled = false;
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (d) => { stdout += String(d); });
-    child.stderr.on("data", (d) => { stderr += String(d); });
+    let outputCapped = false;
+
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      finish({
+        ok: false,
+        reason: `${command} timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+    timer.unref();
+
+    function finish(result: RunResult) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    }
+
+    child.stdout.on("data", (d) => {
+      if (outputCapped) return;
+      stdout += String(d);
+      if (stdout.length >= MAX_OUTPUT_CHARS) {
+        outputCapped = true;
+        child.kill("SIGTERM");
+        finish({
+          ok: false,
+          reason: `${command} output exceeded ${MAX_OUTPUT_CHARS} chars`,
+        });
+      }
+    });
+    child.stderr.on("data", (d) => {
+      if (stderr.length >= MAX_OUTPUT_CHARS) return;
+      stderr += String(d);
+    });
     child.on("error", (e) =>
-      resolve({ ok: false, reason: `could not spawn claude: ${e.message}` }));
+      finish({ ok: false, reason: `could not spawn ${command}: ${e.message}` }));
+    child.stdin.on("error", (e) =>
+      finish({ ok: false, reason: `${command} stdin error: ${e.message}` }));
     child.on("close", (code) =>
-      resolve(interpretRun(code ?? 1, stdout, stderr)));
+      finish(interpretRun(code ?? 1, stdout, stderr)));
 
     child.stdin.write(prompt);
     child.stdin.end();
