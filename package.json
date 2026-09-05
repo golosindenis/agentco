@@ -14,7 +14,8 @@
     "review": "tsx src/cli.ts",
     "seed": "tsx src/seed.ts",
     "costs": "tsx scripts/costs.ts",
-    "drafts": "tsx scripts/drafts.ts"
+    "drafts": "tsx scripts/drafts.ts",
+    "dashboard": "npm --prefix dashboard run dev"
   },
   "keywords": [],
   "author": "",
