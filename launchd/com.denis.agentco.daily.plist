@@ -8,7 +8,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/denisgolosin/Desktop/agentco/scripts/daily.sh</string>
+    <string>/Users/denisgolosin/agentco/scripts/daily.sh</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -20,9 +20,9 @@
   </dict>
 
   <key>StandardOutPath</key>
-  <string>/Users/denisgolosin/Desktop/agentco/logs/launchd.out.log</string>
+  <string>/Users/denisgolosin/agentco/logs/launchd.out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/denisgolosin/Desktop/agentco/logs/launchd.err.log</string>
+  <string>/Users/denisgolosin/agentco/logs/launchd.err.log</string>
 </dict>
 </plist>

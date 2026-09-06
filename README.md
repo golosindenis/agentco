@@ -82,10 +82,17 @@ current local day. This matters because `launchd` runs a missed
 `StartCalendarInterval` job when the Mac wakes from sleep, so this script can
 legitimately run more than once in one morning and must not double-queue.
 
+**The repo must not live in `~/Desktop`, `~/Documents` or `~/Downloads`.** Those
+are TCC-protected on macOS. A LaunchAgent has no user session behind it, so
+macOS refuses to even execute a script inside them — exit code 126,
+`Operation not permitted`, silently, every morning. It ran from `~/Desktop`
+for one night and failed exactly that way; the dashboard's health banner is
+what surfaced it. `~/agentco` is fine.
+
 **Install the LaunchAgent:**
 
 ```bash
-launchctl bootstrap gui/$(id -u) /Users/denisgolosin/Desktop/agentco/launchd/com.denis.agentco.daily.plist
+launchctl bootstrap gui/$(id -u) /Users/denisgolosin/agentco/launchd/com.denis.agentco.daily.plist
 ```
 
 **Remove it:**
