@@ -51,6 +51,14 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
     .filter((r) => r.length > 0);
   const pending = pendingCounts[agent.id] ?? 0;
   const totals = totalsByAgent(runEvents).find((t) => t.agent === agent.display_name);
+  // Same "not measured" distinction OverviewView.tsx makes (see its comment
+  // above the agent cards): an agent whose runs all predate cost telemetry
+  // has costedRuns === 0 and totalCostUsd === 0, which reads as "$0.0000" —
+  // i.e. free — unless called out explicitly. Match Overview's wording so
+  // the same state doesn't read two different ways depending on which page
+  // Denis is looking at.
+  const costedRuns = totals?.costedRuns ?? 0;
+  const totalCost = totals?.totalCostUsd ?? 0;
 
   return (
     <div className="shell">
@@ -93,7 +101,9 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
             </div>
             <div className="stat">
               <div className="stat-label">Cost, month</div>
-              <div className="stat-value">{totals ? money(totals.totalCostUsd) : "—"}</div>
+              <div className="stat-value">
+                {costedRuns > 0 ? money(totalCost) : "not measured"}
+              </div>
             </div>
           </div>
 

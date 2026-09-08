@@ -177,8 +177,18 @@ export async function toggleAgentPaused(formData: FormData): Promise<ActionResul
   try {
     const { setAgentEnabled } = await import("../../src/db.js");
     await setAgentEnabled(agentId, enabled);
-    revalidatePath("/agents");
+    // "/agents" isn't a route — the only page under it is the dynamic
+    // "/agents/[key]", which a literal, non-dynamic revalidatePath call
+    // does not match. We don't have this agent's `key` here (the form only
+    // carries its id), so revalidate the dynamic page path with the `type`
+    // argument instead of fetching the key just to build one concrete URL
+    // (see revalidatePath's docs on route patterns + `type`). "/" also
+    // needs revalidating — OverviewView.tsx renders each agent's
+    // enabled/disabled state there — matching recordAndRevalidate above,
+    // which revalidates "/" for the same reason.
+    revalidatePath("/");
     revalidatePath("/org");
+    revalidatePath("/agents/[key]", "page");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
