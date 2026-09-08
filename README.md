@@ -122,6 +122,18 @@ Installed to the home screen it opens without browser chrome, straight to
 the login screen. Deployed at: `<DEPLOYED_URL — fill in after the Vercel
 deploy>`.
 
+**Deploy step: why `web/vercel.json` overrides the install command.**
+The app's Root Directory on Vercel is `web`, so Vercel runs `npm install`
+there and nowhere else. But `web/app/*` imports the engine at `../src`, and
+`src/db.ts` imports `@supabase/supabase-js` and `dotenv/config` — which Node
+resolves from the REPO ROOT's `node_modules`, not `web/node_modules`, because
+`src/` sits outside the root directory. Locally that works only because the
+engine's own `npm install` has already populated the repo root. On a clean
+Vercel build it fails with "Module not found: Can't resolve
+'@supabase/supabase-js'" even though `web/package.json` lists it. Hence
+`installCommand: "npm install --prefix .. && npm install"` — install the root
+first, then the app.
+
 **Deploy step: point the Supabase Site URL at the real domain.**
 `sendCode` (`web/app/login/actions.ts`) calls `signInWithOtp` without an
 `emailRedirectTo`, so the magic link in the email follows whatever "Site
