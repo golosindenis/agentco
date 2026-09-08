@@ -1,0 +1,14 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Today" },
+    { "file": "DraftReview.dc.html", "x": 490, "y": 0, "w": 390, "h": 844, "title": "Draft review" },
+    { "file": "Org.dc.html", "x": 980, "y": 0, "w": 390, "h": 844, "title": "Org" },
+    { "file": "Overview.dc.html", "x": 0, "y": 1000, "w": 1440, "h": 900, "title": "Overview (desktop)" },
+    { "file": "AgentDetail.dc.html", "x": 1560, "y": 1000, "w": 1440, "h": 900, "title": "Agent detail (desktop)" }
+  ],
+  "annotations": [
+    { "id": "note-phone", "x": 0, "y": -150, "w": 400, "text": "Phone, the daily surface.\nApprove without leaving the list; tap Read only when you want the full thing." },
+    { "id": "note-desktop", "x": 0, "y": 1930, "w": 460, "text": "Desktop, the weekly surface.\nWhere you tune instructions and see whether the org is actually earning autonomy." }
+  ],
+  "launch": { "view": "canvas" }
+}
