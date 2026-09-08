@@ -6,6 +6,7 @@ import { PROMOTE_AFTER } from "../../src/ladder.js";
 import { money, timeAgo, fmtTime } from "./format";
 import { summarizeDetail, detailTone } from "./eventDetail";
 import { HEALTH_LABEL } from "./lib/viewModel";
+import { AgentLadder } from "./AgentLadder";
 import {
   BriefSection,
   PendingSection,
@@ -110,7 +111,12 @@ export function OverviewView({
             // the costs table below labels uncosted runs.
             const costedRuns = totals?.costedRuns ?? 0;
             const totalCost = totals?.totalCostUsd ?? 0;
-            const atMaxLevel = agent.level >= Math.min(4, agent.max_level);
+            // Was `agent.level >= Math.min(4, agent.max_level)`, hardcoding 4
+            // segments regardless of the agent's real ladder length —
+            // AgentLadder and org/page.tsx both use max_level directly. That
+            // mismatch is exactly what let this card and the ladder below it
+            // disagree about how many rungs there are.
+            const atMaxLevel = agent.level >= agent.max_level;
 
             return (
               <div
@@ -126,14 +132,10 @@ export function OverviewView({
                   {agent.enabled && atCap && <span className="badge blocked">At cap — blocked</span>}
                 </div>
 
-                <div className="ladder" title={`Level ${agent.level} of 4`}>
-                  {[1, 2, 3, 4].map((seg) => (
-                    <div key={seg} className={`seg${seg <= agent.level ? " filled" : ""}`} />
-                  ))}
-                </div>
+                <AgentLadder level={agent.level} maxLevel={agent.max_level} />
 
                 <div className="meta-row">
-                  <span>Level {agent.level}/4</span>
+                  <span>Level {agent.level}/{agent.max_level}</span>
                   <span>
                     Streak{" "}
                     <span className="streak-track" style={{ display: "inline-flex" }}>
@@ -223,7 +225,15 @@ export function OverviewView({
                         {t.runs}
                         {t.runs > t.costedRuns ? ` (${t.runs - t.costedRuns} uncosted)` : ""}
                       </td>
-                      <td className="num">{money(t.totalCostUsd)}</td>
+                      {/* Same "not measured" guard the agent card above already
+                          applies — costedRuns === 0 means nothing here is
+                          priced, not that it cost $0. Without this, this row
+                          printed "$0.0000" for the exact agent the card just
+                          called "not measured", contradicting it on the same
+                          screen. avgCostUsd already carries its own null
+                          (costedRuns === 0) from totalsByAgent, worded "n/a"
+                          to match the CLI's cost report (scripts/costs.ts). */}
+                      <td className="num">{t.costedRuns > 0 ? money(t.totalCostUsd) : "not measured"}</td>
                       <td className="num">{t.avgCostUsd === null ? "n/a" : money(t.avgCostUsd)}</td>
                       <td className="num">{t.outputTokens.toLocaleString()}</td>
                     </tr>

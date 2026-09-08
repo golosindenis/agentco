@@ -763,7 +763,20 @@ footer.pagefoot {
 /* ---- app shell ---- */
 
 .shell { display: flex; min-height: 100dvh; }
-.shell-main { flex: 1; min-width: 0; }
+/* Installed home-screen app only: layout.tsx sets `viewportFit: "cover"` and
+   `statusBarStyle: "black-translucent"`, so content draws under the iPhone
+   status bar edge-to-edge, and `env(safe-area-inset-top)` is the only way
+   to know how tall that bar is. This is the single place that inset is
+   applied for every route rendered under `.shell` (Overview/TodayView,
+   org, an agent's detail page, activity, the error boundary, not-found) —
+   `.wrap`'s own top padding is a fixed visual value, not a safe-area
+   value, so stacking the two here is additive by design (page's normal
+   top margin, plus clearance for the notch), not a duplicate application
+   of the same inset. In a normal browser — desktop, or a phone that hasn't
+   installed the app — the env() resolves to its 0px fallback, so this is a
+   no-op there. `/drafts/[id]` doesn't render under `.shell-main`; it gets
+   its own fix on `.draft-page-head` below. */
+.shell-main { flex: 1; min-width: 0; padding-top: env(safe-area-inset-top, 0px); }
 
 /* The phone and desktop screens show the same facts at different densities.
    Both render; CSS picks one. Rendering both is cheap here because the data
@@ -867,6 +880,13 @@ footer.pagefoot {
   align-items: center;
   gap: 14px;
   padding: 18px;
+  /* This page has no `.shell-main` ancestor (it's a standalone `<main>`,
+     not part of the sidebar shell), so it doesn't pick up that container's
+     safe-area padding-top — without this, the Back link sits under the
+     status bar on an installed home-screen app. Only the top side changes;
+     left/right/bottom keep the plain 18px above. Falls back to 18px+0 in
+     any browser that isn't the installed app. */
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
   border-bottom: 1px solid var(--border);
 }
 

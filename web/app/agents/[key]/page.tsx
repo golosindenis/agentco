@@ -7,10 +7,11 @@ import {
   pendingDraftCountsByAgent,
   listRunEvents,
 } from "../../../../src/db.js";
-import { countRules, MAX_RULES } from "../../../../src/review.js";
+import { MAX_RULES } from "../../../../src/review.js";
 import { PROMOTE_AFTER } from "../../../../src/ladder.js";
 import { MAX_PENDING_DRAFTS } from "../../../../src/capacity.js";
 import { totalsByAgent } from "../../../../src/costs.js";
+import { dueOn } from "../../../../src/schedule.js";
 import { AgentLadder } from "../../AgentLadder";
 import { Sidebar } from "../../Sidebar";
 import { BottomNav } from "../../BottomNav";
@@ -45,6 +46,12 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
     listRunEvents(),
   ]);
 
+  // The header's "N of MAX_RULES" count and the rendered row count below it
+  // are both on this one screen — deriving both from this single array
+  // (rather than the header separately calling src/review.ts's countRules,
+  // which parses the same string with its own copy of this split/trim/
+  // filter) is what keeps them from being able to disagree if either
+  // implementation ever changes on its own.
   const rules = agent.instructions
     .split("\n")
     .map((r) => r.trim())
@@ -59,6 +66,16 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
   // Denis is looking at.
   const costedRuns = totals?.costedRuns ?? 0;
   const totalCost = totals?.totalCostUsd ?? 0;
+  // Same real-max-level check OverviewView.tsx uses (see its comment there)
+  // — an agent already at its ceiling can never promote again, so printing
+  // "{streak} of {PROMOTE_AFTER}" implies a promotion that cannot happen.
+  const atMaxLevel = agent.level >= agent.max_level;
+  // listRunEvents()/totalsByAgent has no date filter — it's an all-time
+  // total, the same figure `/` shows as "Total cost (list-price)". This
+  // page used to label it "Cost, month", which is a different number than
+  // what's actually computed; fixing the label (not adding a date-filtered
+  // query) to match how `/` already describes the same figure.
+  const scheduledToday = dueOn(new Date()).some((t) => t.agentKey === agent.key);
 
   return (
     <div className="shell">
@@ -74,7 +91,20 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
               </span>
             </div>
             <div className="head-actions">
-              <span className="sub">{agent.enabled ? "Next run 07:00" : "Paused"}</span>
+              {/* "Next run 07:00" was always shown for any enabled agent,
+                  which is wrong six days out of seven for the Strategist
+                  (src/schedule.ts's dueOn() only queues its weekly_angles
+                  on Mondays) — and even on a day a task is queued, this app
+                  has no way to confirm the LaunchAgent actually fired.
+                  "Scheduled today" says only what dueOn() actually knows;
+                  it does not claim the run happened or will happen. */}
+              <span className="sub">
+                {agent.enabled
+                  ? scheduledToday
+                    ? "Scheduled today, 07:00"
+                    : "Not scheduled today"
+                  : "Paused"}
+              </span>
               <PauseButton agentId={agent.id} enabled={agent.enabled} />
             </div>
           </div>
@@ -90,7 +120,13 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
             <div className="stat">
               <div className="stat-label">Streak</div>
               <div className="stat-value">
-                {agent.streak} <span className="of">of {PROMOTE_AFTER}</span>
+                {atMaxLevel ? (
+                  "(max level)"
+                ) : (
+                  <>
+                    {agent.streak} <span className="of">of {PROMOTE_AFTER}</span>
+                  </>
+                )}
               </div>
             </div>
             <div className="stat">
@@ -100,7 +136,7 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
               </div>
             </div>
             <div className="stat">
-              <div className="stat-label">Cost, month</div>
+              <div className="stat-label">Total cost (list-price)</div>
               <div className="stat-value">
                 {costedRuns > 0 ? money(totalCost) : "not measured"}
               </div>
@@ -109,7 +145,7 @@ export default async function AgentPage({ params }: { params: Promise<{ key: str
 
           <section className="block">
             <h2>
-              Instructions <span className="count">{countRules(agent.instructions)} of {MAX_RULES}</span>
+              Instructions <span className="count">{rules.length} of {MAX_RULES}</span>
             </h2>
             <div className="feed">
               {rules.map((rule, i) => (

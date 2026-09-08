@@ -31,22 +31,31 @@ export function TodayView({
 }) {
   return (
     <>
-      <section className={`health ${health.state}`}>
-        <div className="headline-row">
-          <span className="dot" />
-          <span className="state-label">{HEALTH_LABEL[health.state]}</span>
-          <span className="headline">{health.headline}</span>
-        </div>
-        <ul className="evidence">
-          {health.evidence.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      </section>
+      {/* Same `.wrap` every other route uses for its horizontal/top padding
+          (org, agents/[key], activity, error, not-found) — this page was the
+          one exception, rendering straight into the unpadded `.only-narrow`
+          container, so cards ran flush to the screen edges. `BottomNav`
+          stays a sibling outside `.wrap`, matching those other routes, so
+          the nav bar itself stays full-bleed rather than picking up the
+          same side padding. */}
+      <div className="wrap">
+        <section className={`health ${health.state}`}>
+          <div className="headline-row">
+            <span className="dot" />
+            <span className="state-label">{HEALTH_LABEL[health.state]}</span>
+            <span className="headline">{health.headline}</span>
+          </div>
+          <ul className="evidence">
+            {health.evidence.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </section>
 
-      <BriefSection brief={brief} now={now} />
-      <PendingSection pending={pending} now={now} />
-      <ReadyToPostSection toPost={toPost} now={now} />
+        <BriefSection brief={brief} now={now} />
+        <PendingSection pending={pending} now={now} />
+        <ReadyToPostSection toPost={toPost} now={now} />
+      </div>
 
       <BottomNav active="/" />
     </>

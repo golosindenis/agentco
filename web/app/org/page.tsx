@@ -48,16 +48,26 @@ export default async function OrgPage() {
                     <Link
                       href={`/agents/${a.key}`}
                       key={a.id}
-                      className={atCap ? "agent-card blocked" : "agent-card"}
+                      // `/` already marks a paused agent both ways — the
+                      // `.agent-card.disabled` dimming and a "Disabled"
+                      // badge — but that's a desktop-only view. On a phone
+                      // `/org` IS the agent list, so without this a paused
+                      // agent looked identical to a running one here.
+                      // Reusing the same `.disabled`/`.badge.off` treatment
+                      // `/` already defines rather than inventing a new one.
+                      className={`agent-card${a.enabled ? "" : " disabled"}${atCap ? " blocked" : ""}`}
                     >
                       <div className="head">
                         <div>
                           <div className="name">{a.display_name}</div>
                           <div className="dept">{a.department}</div>
                         </div>
-                        <span className={atCap ? "pending-pill at-cap" : "pending-pill"}>
-                          {pending} / {MAX_PENDING_DRAFTS}
-                        </span>
+                        <div className="head-actions">
+                          {!a.enabled && <span className="badge off">Disabled</span>}
+                          <span className={atCap ? "pending-pill at-cap" : "pending-pill"}>
+                            {pending} / {MAX_PENDING_DRAFTS}
+                          </span>
+                        </div>
                       </div>
                       <AgentLadder level={a.level} maxLevel={a.max_level} />
                       <div className="meta-row">
