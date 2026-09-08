@@ -33,6 +33,7 @@ let markPosted: typeof import("../src/db.js")["markPosted"];
 let getAgentByKey: typeof import("../src/db.js")["getAgentByKey"];
 let verdictHistory: typeof import("../src/db.js")["verdictHistory"];
 let eventsForAgent: typeof import("../src/db.js")["eventsForAgent"];
+let getDraftForReview: typeof import("../src/db.js")["getDraftForReview"];
 
 let agentId: string;
 
@@ -42,7 +43,7 @@ describe.skipIf(!hasCredentials)("db", () => {
     ({
       supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask,
       latestDraftBody, latestApprovedDraftBody, approvedUnpostedDrafts, markPosted,
-      getAgentByKey, verdictHistory, eventsForAgent,
+      getAgentByKey, verdictHistory, eventsForAgent, getDraftForReview,
     } = db);
 
     const { data, error } = await supabase
@@ -249,6 +250,40 @@ describe.skipIf(!hasCredentials)("db", () => {
   // two disposable agents with known, controlled row counts so both the
   // scoping filter and the limit cap have something to actually fail
   // against.
+  describe("getDraftForReview", () => {
+    // Deliberately does not depend on whatever happens to be pending in the
+    // live database right now (there may be zero, or many) — it creates its
+    // own task/draft under the suite's own agent so the assertions below
+    // are true every run. Cleanup is the outer afterAll's cascade delete of
+    // `agentId` (drafts.agent_id/task_id are ON DELETE CASCADE), same as
+    // every other test in the "drafts" describe block above.
+    it("loads one draft with the agent and task it belongs to", async () => {
+      const { data: t } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      const { data: draft } = await supabase.from("drafts")
+        .insert({
+          task_id: t!.id, agent_id: agentId,
+          body: "A draft body for the review screen test.", status: "pending",
+        })
+        .select().single();
+
+      const row = await getDraftForReview(draft!.id);
+      expect(row).not.toBeNull();
+      expect(row!.id).toBe(draft!.id);
+      expect(row!.body).toBe("A draft body for the review screen test.");
+      expect(row!.status).toBe("pending");
+      expect(row!.agent_id).toBe(agentId);
+      expect(row!.agent_name).toBe("Test");
+      expect(row!.kind).toBe("daily_draft");
+    });
+
+    it("returns null for a draft id that does not exist", async () => {
+      expect(
+        await getDraftForReview("00000000-0000-0000-0000-000000000000"),
+      ).toBeNull();
+    });
+  });
+
   describe("verdictHistory / eventsForAgent scoping and limit", () => {
     let agentA: string;
     let agentB: string;

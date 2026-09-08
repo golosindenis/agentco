@@ -562,3 +562,34 @@ export async function eventsForAgent(
   if (error) throw new Error(`eventsForAgent failed: ${error.message}`);
   return (data ?? []) as { kind: string; detail: Record<string, unknown>; created_at: string }[];
 }
+
+/** One draft with everything the review screen shows about it. */
+export async function getDraftForReview(id: string): Promise<{
+  id: string;
+  body: string;
+  status: string;
+  created_at: string;
+  agent_id: string;
+  agent_name: string;
+  agent_level: number;
+  kind: string;
+} | null> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("id, body, status, created_at, agent_id, agents(display_name, level), tasks(kind)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getDraftForReview(${id}): ${error.message}`);
+  if (!data) return null;
+  const row = data as any;
+  return {
+    id: row.id,
+    body: row.body,
+    status: row.status,
+    created_at: row.created_at,
+    agent_id: row.agent_id,
+    agent_name: row.agents?.display_name ?? "Unknown",
+    agent_level: row.agents?.level ?? 1,
+    kind: row.tasks?.kind ?? "",
+  };
+}
