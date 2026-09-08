@@ -63,6 +63,41 @@ Instagram (or wherever) by hand, and marks it posted with
 feature — this system has no credentials for any platform it could post to,
 and no code path that would use them.
 
+## Web app
+
+```bash
+npm run web         # next dev, on http://localhost:3000
+npm run web:build   # production build
+```
+
+`web/` is a Next.js app that reads the same Supabase database as the CLI —
+a phone-friendly way to see what the agents did and review drafts without
+opening a terminal. It's gated behind a one-time email code to
+`ALLOWED_EMAIL`; nobody else can sign in. Five routes:
+
+| Route | Shows |
+|---|---|
+| `/` | Today: what's pending review right now, plus the org overview |
+| `/drafts/[id]` | One draft, full body, approve/edit/decline |
+| `/org` | Every agent, grouped by department, with its ladder level |
+| `/agents/[key]` | One agent's history: verdicts, rules, recent events, costs |
+| `/activity` | The recent-events feed |
+
+**The runner is still the 07:00 LaunchAgent on the Mac.** The app only
+shows what that run produced — there is deliberately no "Run now" button.
+Triggering a run from the web needs a queue a phone tap could feed, which is
+its own project (deferred to the cloud-runner sub-project). If a page looks
+stale, the fix is to check the LaunchAgent, not to look for a button here.
+
+Installed to the home screen it opens without browser chrome, straight to
+the login screen. Deployed at: `<DEPLOYED_URL — fill in after the Vercel
+deploy>`.
+
+**Local sign-in without email:** `node scripts/dev-session.mjs` mints a real
+signed-in session cookie for `ALLOWED_EMAIL` via the Supabase admin API,
+without actually sending an email — useful for curl-testing the app
+locally. See the comment at the top of that file for usage.
+
 ## Schedule
 
 Every morning at 07:00 local time, `launchd` runs `scripts/daily.sh`, which
@@ -176,7 +211,7 @@ autonomous action.
 ## Tests
 
 ```bash
-npm test          # 121 tests
+npm test          # 154 tests
 npm run typecheck
 ```
 
