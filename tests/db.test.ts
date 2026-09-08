@@ -239,24 +239,115 @@ describe.skipIf(!hasCredentials)("db", () => {
       expect(await getAgentByKey("no_such_agent")).toBeNull();
     });
 
-    it("returns verdict history newest first, capped at the limit", async () => {
-      const agent = await getAgentByKey("writer");
-      const rows = await verdictHistory(agent!.id, 3);
-      expect(Array.isArray(rows)).toBe(true);
-      expect(rows.length).toBeLessThanOrEqual(3);
-      for (let i = 1; i < rows.length; i++) {
-        expect(rows[i - 1]!.created_at >= rows[i]!.created_at).toBe(true);
+  });
+
+  // The tests above for the real `writer` agent can't prove `verdictHistory`
+  // and `eventsForAgent` actually scope to the requested agent, or that the
+  // `limit` is doing anything: `writer` only ever has a handful of approvals
+  // and events in this database, so "length <= limit" passes whether or not
+  // the agent filter or the .limit() call exist at all. This block builds
+  // two disposable agents with known, controlled row counts so both the
+  // scoping filter and the limit cap have something to actually fail
+  // against.
+  describe("verdictHistory / eventsForAgent scoping and limit", () => {
+    let agentA: string;
+    let agentB: string;
+    const eventIds: string[] = [];
+
+    beforeAll(async () => {
+      const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const { data: a, error: aErr } = await supabase.from("agents")
+        .insert({ key: `test_scope_a_${suffix}`, display_name: "Test Scope A", department: "Test" })
+        .select().single();
+      if (aErr) throw aErr;
+      agentA = a!.id;
+
+      const { data: b, error: bErr } = await supabase.from("agents")
+        .insert({ key: `test_scope_b_${suffix}`, display_name: "Test Scope B", department: "Test" })
+        .select().single();
+      if (bErr) throw bErr;
+      agentB = b!.id;
+
+      // Agent A gets 4 approved drafts, each with its own verdict — more
+      // than the limit(2) used below, so the cap has something to truncate.
+      for (let i = 0; i < 4; i++) {
+        const { data: t } = await supabase.from("tasks")
+          .insert({ agent_id: agentA, kind: "daily_draft" }).select().single();
+        const { data: d } = await supabase.from("drafts")
+          .insert({
+            task_id: t!.id, agent_id: agentA,
+            body: `Agent A draft ${i}, long enough to pass.`, status: "approved",
+          })
+          .select().single();
+        const { error: apErr } = await supabase.from("approvals")
+          .insert({ draft_id: d!.id, verdict: "approved", reason: `agent A verdict ${i}` });
+        if (apErr) throw apErr;
       }
+
+      // Agent B gets one verdict whose reason is a marker that must never
+      // appear in agent A's results if the agent filter is doing its job.
+      const { data: tB } = await supabase.from("tasks")
+        .insert({ agent_id: agentB, kind: "daily_draft" }).select().single();
+      const { data: dB } = await supabase.from("drafts")
+        .insert({
+          task_id: tB!.id, agent_id: agentB,
+          body: "Agent B draft, long enough to pass.", status: "approved",
+        })
+        .select().single();
+      await supabase.from("approvals")
+        .insert({ draft_id: dB!.id, verdict: "approved", reason: "agent B verdict — must not leak into A" });
+
+      // Same shape for events: 4 for agent A (more than limit(2)), 1 for
+      // agent B with a distinct `kind` marker.
+      for (let i = 0; i < 4; i++) {
+        const { data: e, error: evErr } = await supabase.from("events")
+          .insert({ agent_id: agentA, kind: "test_scope_event_a", detail: { i } })
+          .select().single();
+        if (evErr) throw evErr;
+        eventIds.push(e!.id);
+      }
+      const { data: eB, error: eBErr } = await supabase.from("events")
+        .insert({ agent_id: agentB, kind: "test_scope_event_b", detail: {} })
+        .select().single();
+      if (eBErr) throw eBErr;
+      eventIds.push(eB!.id);
     });
 
-    it("returns that agent's events newest first, capped at the limit", async () => {
-      const agent = await getAgentByKey("writer");
-      const rows = await eventsForAgent(agent!.id, 5);
-      expect(Array.isArray(rows)).toBe(true);
-      expect(rows.length).toBeLessThanOrEqual(5);
-      for (let i = 1; i < rows.length; i++) {
-        expect(rows[i - 1]!.created_at >= rows[i]!.created_at).toBe(true);
+    afterAll(async () => {
+      // events.agent_id is ON DELETE SET NULL (not CASCADE) — deleting the
+      // agents below would orphan these rows (agent_id -> null) rather than
+      // remove them, so they must be deleted explicitly first.
+      if (eventIds.length) {
+        await supabase.from("events").delete().in("id", eventIds);
       }
+      // tasks.agent_id, drafts.agent_id/task_id, and approvals.draft_id are
+      // all ON DELETE CASCADE, so deleting the two agents cleans up every
+      // task/draft/approval inserted above.
+      await supabase.from("agents").delete().in("id", [agentA, agentB]);
+    });
+
+    it("verdictHistory returns only the requested agent's verdicts, and the limit truncates", async () => {
+      const all = await verdictHistory(agentA, 10);
+      expect(all.length).toBe(4);
+      expect(all.every((r) => r.reason !== "agent B verdict — must not leak into A")).toBe(true);
+      for (let i = 1; i < all.length; i++) {
+        expect(all[i - 1]!.created_at >= all[i]!.created_at).toBe(true);
+      }
+
+      const capped = await verdictHistory(agentA, 2);
+      expect(capped.length).toBe(2);
+    });
+
+    it("eventsForAgent returns only the requested agent's events, and the limit truncates", async () => {
+      const all = await eventsForAgent(agentA, 10);
+      expect(all.length).toBe(4);
+      expect(all.every((r) => r.kind !== "test_scope_event_b")).toBe(true);
+      for (let i = 1; i < all.length; i++) {
+        expect(all[i - 1]!.created_at >= all[i]!.created_at).toBe(true);
+      }
+
+      const capped = await eventsForAgent(agentA, 2);
+      expect(capped.length).toBe(2);
     });
   });
 });

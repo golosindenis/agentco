@@ -519,7 +519,7 @@ export async function getAgentByKey(key: string): Promise<AgentRow | null> {
     .select("*")
     .eq("key", key)
     .maybeSingle();
-  if (error) throw new Error(`getAgentByKey(${key}): ${error.message}`);
+  if (error) throw new Error(`getAgentByKey failed: ${error.message}`);
   return (data as AgentRow) ?? null;
 }
 
@@ -538,11 +538,13 @@ export async function verdictHistory(
     .eq("drafts.agent_id", agentId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) throw new Error(`verdictHistory(${agentId}): ${error.message}`);
-  return (data ?? []).map((r: any) => ({
-    verdict: r.verdict,
-    reason: r.reason,
-    created_at: r.created_at,
+  if (error) throw new Error(`verdictHistory failed: ${error.message}`);
+  return ((data ?? []) as unknown as
+    { verdict: string; reason: string | null; created_at: string }[]
+  ).map((row) => ({
+    verdict: row.verdict,
+    reason: row.reason,
+    created_at: row.created_at,
   }));
 }
 
@@ -557,6 +559,6 @@ export async function eventsForAgent(
     .eq("agent_id", agentId)
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) throw new Error(`eventsForAgent(${agentId}): ${error.message}`);
+  if (error) throw new Error(`eventsForAgent failed: ${error.message}`);
   return (data ?? []) as { kind: string; detail: Record<string, unknown>; created_at: string }[];
 }
