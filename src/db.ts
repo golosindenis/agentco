@@ -511,3 +511,94 @@ export async function getHealthFacts(now: Date = new Date()): Promise<HealthFact
     lastCompletedAt: (lastDone as { finished_at: string }[] | null)?.[0]?.finished_at ?? null,
   };
 }
+
+/** One agent by its stable key, or null when there is no such agent. */
+export async function getAgentByKey(key: string): Promise<AgentRow | null> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw new Error(`getAgentByKey failed: ${error.message}`);
+  return (data as AgentRow) ?? null;
+}
+
+/**
+ * This agent's verdicts, newest first. The approvals table has no agent_id —
+ * a verdict belongs to a draft, and the draft belongs to the agent — so the
+ * filter goes through the embedded drafts row rather than a column here.
+ */
+export async function verdictHistory(
+  agentId: string,
+  limit: number,
+): Promise<{ verdict: string; reason: string | null; created_at: string }[]> {
+  const { data, error } = await supabase
+    .from("approvals")
+    .select("verdict, reason, created_at, drafts!inner(agent_id)")
+    .eq("drafts.agent_id", agentId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`verdictHistory failed: ${error.message}`);
+  return ((data ?? []) as unknown as
+    { verdict: string; reason: string | null; created_at: string }[]
+  ).map((row) => ({
+    verdict: row.verdict,
+    reason: row.reason,
+    created_at: row.created_at,
+  }));
+}
+
+/** This agent's events, newest first. */
+export async function eventsForAgent(
+  agentId: string,
+  limit: number,
+): Promise<{ kind: string; detail: Record<string, unknown>; created_at: string }[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("kind, detail, created_at")
+    .eq("agent_id", agentId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`eventsForAgent failed: ${error.message}`);
+  return (data ?? []) as { kind: string; detail: Record<string, unknown>; created_at: string }[];
+}
+
+/** One draft with everything the review screen shows about it. */
+export async function getDraftForReview(id: string): Promise<{
+  id: string;
+  body: string;
+  status: string;
+  created_at: string;
+  agent_id: string;
+  agent_name: string;
+  agent_level: number;
+  kind: string;
+} | null> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("id, body, status, created_at, agent_id, agents(display_name, level), tasks(kind)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getDraftForReview(${id}): ${error.message}`);
+  if (!data) return null;
+  const row = data as any;
+  return {
+    id: row.id,
+    body: row.body,
+    status: row.status,
+    created_at: row.created_at,
+    agent_id: row.agent_id,
+    agent_name: row.agents?.display_name ?? "Unknown",
+    agent_level: row.agents?.level ?? 1,
+    kind: row.tasks?.kind ?? "",
+  };
+}
+
+/** Enable or pause an agent. A paused agent is skipped by claim_next_task. */
+export async function setAgentEnabled(agentId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("agents")
+    .update({ enabled })
+    .eq("id", agentId);
+  if (error) throw new Error(`setAgentEnabled(${agentId}): ${error.message}`);
+}

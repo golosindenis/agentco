@@ -93,6 +93,19 @@ body {
   font-size: 12.5px;
 }
 
+/* Bare `p.note` (as opposed to the more specific `section.block > p.note`
+   below) covers the two pages that print a note outside any `section.block`
+   — the error boundary's "this says nothing about whether your agents ran"
+   line inside `.health`, and not-found's "that draft or agent does not
+   exist" line directly under `.wrap`. `section.block > p.note`'s tighter
+   margin still wins by specificity wherever both could apply, so this adds
+   coverage without changing that page's existing spacing. */
+p.note {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
 /* ---- health banner ---- */
 
 .health {
@@ -405,6 +418,62 @@ button.ghost {
   background: transparent;
 }
 
+/* The error boundary's "Try again" button and not-found's "Back to today"
+   link are both reachable from any page, phone screens included, so both
+   need the same >=44px hit target every other phone-reachable control on
+   the dashboard gets — the base `button, .btn` rule above is a compact
+   ~30px. `.retry-btn` keeps `button.primary`'s color; `.back-today` keeps
+   the plain `.btn` treatment `not-found.tsx` also uses. */
+.retry-btn,
+.back-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+/* The "Read" link sits beside the Approve button on the phone stack
+   (TodayView) and, when the pending section is reused on desktop, beside
+   it there too. `.side-item` (styled for the desktop sidebar at ~33px
+   tall) is too short for a 44px touch target, so this gets its own class
+   rather than lowering the bar for the sidebar. `min-height` + flex
+   centering guarantees >=44px regardless of font line-height math, and
+   the border/radius/weight match `button, .btn` so the two read as one
+   control group. */
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.draft-read {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.draft-read:hover {
+  filter: brightness(0.97);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .draft-read:hover {
+    filter: brightness(1.15);
+  }
+}
+
 details.edit-box, details.decline-box {
   flex-basis: 100%;
 }
@@ -634,4 +703,298 @@ footer.pagefoot {
   color: var(--text-faint);
   font-size: 11.5px;
   text-align: center;
+}
+
+/* ---- login ---- */
+
+.login {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 24px;
+}
+
+.login h1 {
+  font-size: 19px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-form label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+
+.login-form input {
+  min-height: 44px;
+}
+
+.login-form button {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.login-form .hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.login .err {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ---- app shell ---- */
+
+.shell { display: flex; min-height: 100dvh; }
+/* Installed home-screen app only: layout.tsx sets `viewportFit: "cover"` and
+   `statusBarStyle: "black-translucent"`, so content draws under the iPhone
+   status bar edge-to-edge, and `env(safe-area-inset-top)` is the only way
+   to know how tall that bar is. This is the single place that inset is
+   applied for every route rendered under `.shell` (Overview/TodayView,
+   org, an agent's detail page, activity, the error boundary, not-found) —
+   `.wrap`'s own top padding is a fixed visual value, not a safe-area
+   value, so stacking the two here is additive by design (page's normal
+   top margin, plus clearance for the notch), not a duplicate application
+   of the same inset. In a normal browser — desktop, or a phone that hasn't
+   installed the app — the env() resolves to its 0px fallback, so this is a
+   no-op there. `/drafts/[id]` doesn't render under `.shell-main`; it gets
+   its own fix on `.draft-page-head` below. */
+.shell-main { flex: 1; min-width: 0; padding-top: env(safe-area-inset-top, 0px); }
+
+/* The phone and desktop screens show the same facts at different densities.
+   Both render; CSS picks one. Rendering both is cheap here because the data
+   is loaded once and shared, and it avoids a layout shift on first paint
+   that a JS width check would cause. */
+.only-narrow { display: block; }
+.only-wide { display: none; }
+.sidebar { display: none; }
+
+@media (min-width: 900px) {
+  .only-narrow { display: none; }
+  .only-wide { display: block; }
+  .sidebar { display: flex; }
+}
+
+.sidebar {
+  width: 224px;
+  flex: none;
+  flex-direction: column;
+  gap: 26px;
+  padding: 22px 14px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar .brand { font-size: 15px; font-weight: 700; padding: 0 8px; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-section { display: flex; flex-direction: column; gap: 6px; }
+
+.sidebar-section-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar-section-head .num { font-family: var(--mono); color: var(--border-strong); }
+.sidebar-section-items { display: flex; flex-direction: column; gap: 1px; }
+
+.side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.side-item.on { background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+
+.side-pending {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* ---- bottom nav (phone) ---- */
+
+.bottom-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-item {
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.nav-item.on { color: var(--accent); font-weight: 700; }
+
+@media (min-width: 900px) { .bottom-nav { display: none; } }
+
+/* ---- draft review ---- */
+
+.draft-page { display: flex; flex-direction: column; min-height: 100dvh; }
+
+.draft-page-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  /* This page has no `.shell-main` ancestor (it's a standalone `<main>`,
+     not part of the sidebar shell), so it doesn't pick up that container's
+     safe-area padding-top — without this, the Back link sits under the
+     status bar on an installed home-screen app. Only the top side changes;
+     left/right/bottom keep the plain 18px above. Falls back to 18px+0 in
+     any browser that isn't the installed app. */
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--border);
+}
+
+.draft-page-head .back {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.draft-agent { font-size: 16px; font-weight: 650; }
+.draft-meta { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono); }
+
+.draft-full {
+  margin: 18px;
+  padding: 16px 17px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.note-band {
+  margin: 0 18px 18px;
+  padding: 11px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 14px 18px calc(22px + env(safe-area-inset-bottom));
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.action-bar button { min-height: 46px; width: 100%; }
+.action-bar button.tall { min-height: 50px; font-size: 15px; }
+.action-row { display: flex; gap: 10px; }
+
+/* The decline reason field on this screen (`/drafts/[id]`, the most
+   phone-critical page in the app) needs a real 44px touch target — the
+   shared `textarea, input[type="text"]` rule above has no min-height and
+   computes to roughly 30-35px here. Scoped to `.action-bar` (only this
+   page's DraftActions wraps its inline-form in `.action-bar`) rather than
+   raised on the shared rule, so the dashboard's VerdictForms — same
+   `input[type="text"]`, but inside `.verdict-row`/`.inline-form`, not
+   `.action-bar` — keeps its current, deliberately compact desktop sizing. */
+.action-bar input[type="text"] {
+  min-height: 44px;
+}
+
+/* Reuses the same treatment as `.login .err` — a submitted verdict that
+   failed server-side (a stale session, a Supabase error) needs the same
+   visual weight here as it does on the login form. */
+.action-bar .err {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ---- agent detail (/agents/[key]) ---- */
+
+.rule-row {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rule-row:last-child { border-bottom: none; }
+.rule-num { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.stat .stat-sub { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+.stat-value .of { font-size: 13px; color: var(--text-faint); font-weight: 500; }
+.agent-card { text-decoration: none; color: inherit; }
+
+/* The event log on this page is already scoped to one agent, so it drops
+   the shared `.feed-row`'s "agent" column (time/agent/kind/detail, 4 cols)
+   in favor of time/kind/detail — reusing the bare 4-column template here
+   would leave the row one column short and misaligned. */
+.feed-row.agent-events {
+  grid-template-columns: 130px 150px 1fr;
+}
+
+/* `.head-actions` holds the Pause/Resume control next to the "Next run"
+   label in the page header — reachable on the phone layout (this page has
+   no wide/narrow split), so its button needs the same >=44px hit target
+   every other phone-reachable control on the dashboard gets, not the
+   default compact desktop button sizing. */
+.head-actions { display: flex; align-items: center; gap: 12px; }
+.head-actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
 }

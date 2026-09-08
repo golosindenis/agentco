@@ -30,6 +30,10 @@ let latestDraftBody: typeof import("../src/db.js")["latestDraftBody"];
 let latestApprovedDraftBody: typeof import("../src/db.js")["latestApprovedDraftBody"];
 let approvedUnpostedDrafts: typeof import("../src/db.js")["approvedUnpostedDrafts"];
 let markPosted: typeof import("../src/db.js")["markPosted"];
+let getAgentByKey: typeof import("../src/db.js")["getAgentByKey"];
+let verdictHistory: typeof import("../src/db.js")["verdictHistory"];
+let eventsForAgent: typeof import("../src/db.js")["eventsForAgent"];
+let getDraftForReview: typeof import("../src/db.js")["getDraftForReview"];
 
 let agentId: string;
 
@@ -39,6 +43,7 @@ describe.skipIf(!hasCredentials)("db", () => {
     ({
       supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask,
       latestDraftBody, latestApprovedDraftBody, approvedUnpostedDrafts, markPosted,
+      getAgentByKey, verdictHistory, eventsForAgent, getDraftForReview,
     } = db);
 
     const { data, error } = await supabase
@@ -220,6 +225,216 @@ describe.skipIf(!hasCredentials)("db", () => {
       // The angle bank was never postable, so it must still be absent —
       // markPosted on the daily draft must not have touched it.
       expect(after.some((d) => d.id === anglesDraft!.id)).toBe(false);
+    });
+  });
+
+  describe("getAgentByKey / verdictHistory / eventsForAgent", () => {
+    it("finds an agent by its stable key and returns its instructions", async () => {
+      const agent = await getAgentByKey("writer");
+      expect(agent).not.toBeNull();
+      expect(agent!.display_name).toBe("Writer");
+      expect(typeof agent!.instructions).toBe("string");
+    });
+
+    it("returns null for a key that does not exist", async () => {
+      expect(await getAgentByKey("no_such_agent")).toBeNull();
+    });
+
+  });
+
+  // The tests above for the real `writer` agent can't prove `verdictHistory`
+  // and `eventsForAgent` actually scope to the requested agent, or that the
+  // `limit` is doing anything: `writer` only ever has a handful of approvals
+  // and events in this database, so "length <= limit" passes whether or not
+  // the agent filter or the .limit() call exist at all. This block builds
+  // two disposable agents with known, controlled row counts so both the
+  // scoping filter and the limit cap have something to actually fail
+  // against.
+  describe("getDraftForReview", () => {
+    // Deliberately does not depend on whatever happens to be pending in the
+    // live database right now (there may be zero, or many) — it creates its
+    // own task/draft under the suite's own agent so the assertions below
+    // are true every run. Cleanup is the outer afterAll's cascade delete of
+    // `agentId` (drafts.agent_id/task_id are ON DELETE CASCADE), same as
+    // every other test in the "drafts" describe block above.
+    it("loads one draft with the agent and task it belongs to", async () => {
+      const { data: t } = await supabase.from("tasks")
+        .insert({ agent_id: agentId, kind: "daily_draft" }).select().single();
+      const { data: draft } = await supabase.from("drafts")
+        .insert({
+          task_id: t!.id, agent_id: agentId,
+          body: "A draft body for the review screen test.", status: "pending",
+        })
+        .select().single();
+
+      const row = await getDraftForReview(draft!.id);
+      expect(row).not.toBeNull();
+      expect(row!.id).toBe(draft!.id);
+      expect(row!.body).toBe("A draft body for the review screen test.");
+      expect(row!.status).toBe("pending");
+      expect(row!.agent_id).toBe(agentId);
+      expect(row!.agent_name).toBe("Test");
+      expect(row!.kind).toBe("daily_draft");
+    });
+
+    it("returns null for a draft id that does not exist", async () => {
+      expect(
+        await getDraftForReview("00000000-0000-0000-0000-000000000000"),
+      ).toBeNull();
+    });
+  });
+
+  describe("verdictHistory / eventsForAgent scoping and limit", () => {
+    let agentA: string;
+    let agentB: string;
+    const eventIds: string[] = [];
+
+    beforeAll(async () => {
+      const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      // enabled: false — this block only exercises verdictHistory /
+      // eventsForAgent, and neither consults `enabled` (both filter purely
+      // on agent_id — see src/db.ts). Left at the schema default of `true`,
+      // these would be real, immediately-claimable agents for however long
+      // they exist before the afterAll cleanup below: the tasks inserted
+      // just below take the schema defaults state='queued', due_at=now(),
+      // so claim_next_task() (which only excludes disabled agents) could
+      // hand one to a worker that fires mid-test, spawning a real headless
+      // `claude` run for a fake agent with no real instructions. Disabling
+      // them removes that risk without weakening what this block tests.
+      const { data: a, error: aErr } = await supabase.from("agents")
+        .insert({ key: `test_scope_a_${suffix}`, display_name: "Test Scope A", department: "Test", enabled: false })
+        .select().single();
+      if (aErr) throw aErr;
+      agentA = a!.id;
+
+      const { data: b, error: bErr } = await supabase.from("agents")
+        .insert({ key: `test_scope_b_${suffix}`, display_name: "Test Scope B", department: "Test", enabled: false })
+        .select().single();
+      if (bErr) throw bErr;
+      agentB = b!.id;
+
+      // Agent A gets 4 approved drafts, each with its own verdict — more
+      // than the limit(2) used below, so the cap has something to truncate.
+      for (let i = 0; i < 4; i++) {
+        const { data: t } = await supabase.from("tasks")
+          .insert({ agent_id: agentA, kind: "daily_draft" }).select().single();
+        const { data: d } = await supabase.from("drafts")
+          .insert({
+            task_id: t!.id, agent_id: agentA,
+            body: `Agent A draft ${i}, long enough to pass.`, status: "approved",
+          })
+          .select().single();
+        const { error: apErr } = await supabase.from("approvals")
+          .insert({ draft_id: d!.id, verdict: "approved", reason: `agent A verdict ${i}` });
+        if (apErr) throw apErr;
+      }
+
+      // Agent B gets one verdict whose reason is a marker that must never
+      // appear in agent A's results if the agent filter is doing its job.
+      const { data: tB } = await supabase.from("tasks")
+        .insert({ agent_id: agentB, kind: "daily_draft" }).select().single();
+      const { data: dB } = await supabase.from("drafts")
+        .insert({
+          task_id: tB!.id, agent_id: agentB,
+          body: "Agent B draft, long enough to pass.", status: "approved",
+        })
+        .select().single();
+      await supabase.from("approvals")
+        .insert({ draft_id: dB!.id, verdict: "approved", reason: "agent B verdict — must not leak into A" });
+
+      // Same shape for events: 4 for agent A (more than limit(2)), 1 for
+      // agent B with a distinct `kind` marker.
+      for (let i = 0; i < 4; i++) {
+        const { data: e, error: evErr } = await supabase.from("events")
+          .insert({ agent_id: agentA, kind: "test_scope_event_a", detail: { i } })
+          .select().single();
+        if (evErr) throw evErr;
+        eventIds.push(e!.id);
+      }
+      const { data: eB, error: eBErr } = await supabase.from("events")
+        .insert({ agent_id: agentB, kind: "test_scope_event_b", detail: {} })
+        .select().single();
+      if (eBErr) throw eBErr;
+      eventIds.push(eB!.id);
+    });
+
+    afterAll(async () => {
+      // If either agent insert in beforeAll above threw (e.g. the second
+      // one, after the first already succeeded), the corresponding local
+      // is left `undefined`. Passing that straight into `.in("id", [...])`
+      // sends `undefined` through to a uuid-typed column and errors on the
+      // cast — which would abort this hook before the *other*, successfully
+      // created agent ever gets deleted, leaving a fake "Test Scope A/B"
+      // agent permanently in the production `agents` table (visible on
+      // /org and in the sidebar forever). Filter undefined ids out first so
+      // a partial beforeAll still cleans up whatever it managed to create.
+      const agentIds = [agentA, agentB].filter(
+        (id): id is string => typeof id === "string",
+      );
+
+      // events.agent_id is ON DELETE SET NULL (not CASCADE) — deleting the
+      // agents below would orphan these rows (agent_id -> null) rather than
+      // remove them, so they must be deleted explicitly first.
+      if (eventIds.length) {
+        const { error: eventsDelErr } = await supabase
+          .from("events").delete().in("id", eventIds);
+        if (eventsDelErr) {
+          throw new Error(
+            `cleanup failed: could not delete ${eventIds.length} scoped test event(s) ` +
+            `(ids: ${eventIds.join(", ")}): ${eventsDelErr.message}`,
+          );
+        }
+      }
+
+      // tasks.agent_id, drafts.agent_id/task_id, and approvals.draft_id are
+      // all ON DELETE CASCADE, so deleting the two agents cleans up every
+      // task/draft/approval inserted above.
+      if (agentIds.length) {
+        const { error: agentsDelErr } = await supabase
+          .from("agents").delete().in("id", agentIds);
+        if (agentsDelErr) {
+          throw new Error(
+            `cleanup failed: could not delete test agent(s) (ids: ${agentIds.join(", ")}): ` +
+            `${agentsDelErr.message}`,
+          );
+        }
+      }
+
+      // Fail loudly rather than silently leaving a fake agent behind: if
+      // beforeAll didn't manage to create both agentA and agentB, cleanup
+      // by definition couldn't have deleted both either.
+      if (agentIds.length < 2) {
+        throw new Error(
+          "cleanup incomplete: expected 2 test agents to exist and be deleted " +
+          `(agentA=${agentA ?? "undefined"}, agentB=${agentB ?? "undefined"}) — ` +
+          "one of the beforeAll inserts above must have failed. Check the agents " +
+          'table for a leftover "Test Scope A" or "Test Scope B" row and remove it by hand.',
+        );
+      }
+    });
+
+    it("verdictHistory returns only the requested agent's verdicts, and the limit truncates", async () => {
+      const all = await verdictHistory(agentA, 10);
+      expect(all.length).toBe(4);
+      expect(all.every((r) => r.reason !== "agent B verdict — must not leak into A")).toBe(true);
+      for (let i = 1; i < all.length; i++) {
+        expect(all[i - 1]!.created_at >= all[i]!.created_at).toBe(true);
+      }
+
+      const capped = await verdictHistory(agentA, 2);
+      expect(capped.length).toBe(2);
+    });
+
+    it("eventsForAgent returns only the requested agent's events, and the limit truncates", async () => {
+      const all = await eventsForAgent(agentA, 10);
+      expect(all.length).toBe(4);
+      expect(all.every((r) => r.kind !== "test_scope_event_b")).toBe(true);
+      for (let i = 1; i < all.length; i++) {
+        expect(all[i - 1]!.created_at >= all[i]!.created_at).toBe(true);
+      }
+
+      const capped = await eventsForAgent(agentA, 2);
+      expect(capped.length).toBe(2);
     });
   });
 });

@@ -1,80 +1,85 @@
-import {
-  getHealthFacts,
-  listAgents,
-  pendingDraftCountsByAgent,
-  lastEventTimeByAgent,
-  pendingDrafts,
-  approvedUnpostedDrafts,
-  latestBrief,
-  listRunEvents,
-  recentEvents,
-} from "../../src/db.js";
-import { deriveHealth, type HealthState } from "../../src/health.js";
-import { totalsByAgent, totalsByDay } from "../../src/costs.js";
+import type { HealthResult } from "../../src/health.js";
+import type { AgentRow } from "../../src/types.js";
+import type { AgentTotals } from "../../src/costs.js";
 import { MAX_PENDING_DRAFTS } from "../../src/capacity.js";
 import { PROMOTE_AFTER } from "../../src/ladder.js";
-import { VerdictForms } from "./VerdictForms";
-import { CopyButton } from "./CopyButton";
-import { MarkPostedForm } from "./MarkPostedForm";
-import { money, timeAgo, fmtDateTime, fmtTime } from "./format";
+import { money, timeAgo, fmtTime } from "./format";
 import { summarizeDetail, detailTone } from "./eventDetail";
+import { HEALTH_LABEL } from "./lib/viewModel";
+import { AgentLadder } from "./AgentLadder";
+import {
+  BriefSection,
+  PendingSection,
+  ReadyToPostSection,
+  type PendingDraft,
+  type ApprovedDraft,
+} from "./PendingSections";
 
-// This page reads live database state on every request — it's an
-// operations surface, not marketing content, and a cached "did it run?"
-// banner would defeat the entire point of the page.
-export const dynamic = "force-dynamic";
-
-const HEALTH_LABEL: Record<HealthState, string> = {
-  healthy: "Healthy",
-  nothing_ran_today: "Nothing ran today",
-  something_failed: "Something failed",
+type RecentEvent = {
+  id: string;
+  kind: string;
+  createdAt: string;
+  agent: string | null;
+  taskKind: string | null;
+  detail: Record<string, unknown>;
 };
 
-export default async function DashboardPage() {
-  const now = new Date();
+type DayTotal = { date: string; runs: number; totalCostUsd: number };
 
-  const [
-    facts,
-    agents,
-    pendingCounts,
-    lastRun,
-    pending,
-    toPost,
-    brief,
-    runEvents,
-    recent,
-  ] = await Promise.all([
-    getHealthFacts(now),
-    listAgents(),
-    pendingDraftCountsByAgent(),
-    lastEventTimeByAgent(),
-    pendingDrafts(),
-    approvedUnpostedDrafts(),
-    latestBrief(),
-    listRunEvents(),
-    recentEvents(20),
-  ]);
-
-  const health = deriveHealth(facts, now);
-  const agentTotals = totalsByAgent(runEvents);
+/**
+ * The desktop operations view: the whole fleet at once — agent ladder
+ * state, cost telemetry, recent activity. This is what page.tsx rendered
+ * before the phone stack existed, moved here unchanged apart from taking
+ * its data as props instead of fetching it.
+ *
+ * It also carries the same action surface TodayView has (brief, pending
+ * verdicts, ready-to-post) — the phone and desktop layouts show the same
+ * facts at different densities, and approving a draft is not a fact you
+ * can leave off the desktop view. These sections reuse the exact same
+ * components as TodayView (see PendingSections.tsx); nothing here
+ * reimplements verdicts, copy, or mark-posted.
+ */
+export function OverviewView({
+  health,
+  brief,
+  pending,
+  toPost,
+  agents,
+  pendingCounts,
+  lastRun,
+  agentTotals,
+  last7,
+  todayCost,
+  todayRuns,
+  last7Cost,
+  last7Runs,
+  grandTotalCost,
+  totalRuns,
+  recent,
+  now,
+}: {
+  health: HealthResult;
+  brief: { body: string; created_at: string } | null;
+  pending: PendingDraft[];
+  toPost: ApprovedDraft[];
+  agents: AgentRow[];
+  pendingCounts: Record<string, number>;
+  lastRun: Record<string, string>;
+  agentTotals: AgentTotals[];
+  last7: DayTotal[];
+  todayCost: number;
+  todayRuns: number;
+  last7Cost: number;
+  last7Runs: number;
+  grandTotalCost: number;
+  totalRuns: number;
+  recent: RecentEvent[];
+  now: Date;
+}) {
   const totalsByAgentName = new Map(agentTotals.map((t) => [t.agent, t]));
-  const today = totalsByDay(runEvents, 1, now);
-  const last7 = totalsByDay(runEvents, 7, now);
-  const todayCost = today[0]?.totalCostUsd ?? 0;
-  const todayRuns = today[0]?.runs ?? 0;
-  const last7Cost = last7.reduce((sum, d) => sum + d.totalCostUsd, 0);
-  const last7Runs = last7.reduce((sum, d) => sum + d.runs, 0);
-  const grandTotalCost = agentTotals.reduce((sum, t) => sum + t.totalCostUsd, 0);
 
   return (
-    <main className="wrap">
-      <div className="top">
-        <h1>agentco — control room</h1>
-        <span className="sub">
-          Refreshed {fmtDateTime(now.toISOString())} · local only · reads live Supabase state
-        </span>
-      </div>
-
+    <>
       <section className={`health ${health.state}`}>
         <div className="headline-row">
           <span className="dot" />
@@ -87,6 +92,10 @@ export default async function DashboardPage() {
           ))}
         </ul>
       </section>
+
+      <PendingSection pending={pending} now={now} />
+      <BriefSection brief={brief} now={now} />
+      <ReadyToPostSection toPost={toPost} now={now} />
 
       <section className="block">
         <h2>The agents <span className="count">{agents.length}</span></h2>
@@ -102,7 +111,12 @@ export default async function DashboardPage() {
             // the costs table below labels uncosted runs.
             const costedRuns = totals?.costedRuns ?? 0;
             const totalCost = totals?.totalCostUsd ?? 0;
-            const atMaxLevel = agent.level >= Math.min(4, agent.max_level);
+            // Was `agent.level >= Math.min(4, agent.max_level)`, hardcoding 4
+            // segments regardless of the agent's real ladder length —
+            // AgentLadder and org/page.tsx both use max_level directly. That
+            // mismatch is exactly what let this card and the ladder below it
+            // disagree about how many rungs there are.
+            const atMaxLevel = agent.level >= agent.max_level;
 
             return (
               <div
@@ -118,14 +132,10 @@ export default async function DashboardPage() {
                   {agent.enabled && atCap && <span className="badge blocked">At cap — blocked</span>}
                 </div>
 
-                <div className="ladder" title={`Level ${agent.level} of 4`}>
-                  {[1, 2, 3, 4].map((seg) => (
-                    <div key={seg} className={`seg${seg <= agent.level ? " filled" : ""}`} />
-                  ))}
-                </div>
+                <AgentLadder level={agent.level} maxLevel={agent.max_level} />
 
                 <div className="meta-row">
-                  <span>Level {agent.level}/4</span>
+                  <span>Level {agent.level}/{agent.max_level}</span>
                   <span>
                     Streak{" "}
                     <span className="streak-track" style={{ display: "inline-flex" }}>
@@ -165,68 +175,6 @@ export default async function DashboardPage() {
       </section>
 
       <section className="block">
-        <h2>Waiting on you <span className="count">{pending.length}</span></h2>
-        {pending.length === 0 ? (
-          <p className="empty">Nothing waiting. Every draft has a verdict.</p>
-        ) : (
-          pending.map((d) => (
-            <div className="draft-card" key={d.id}>
-              <div className="draft-head">
-                <strong>{d.agentName}</strong>
-                <span>
-                  level {d.agentLevel} · drafted {fmtDateTime(d.createdAt)} ({timeAgo(d.createdAt, now)})
-                </span>
-              </div>
-              <div className="draft-body">{d.body}</div>
-              <VerdictForms draftId={d.id} agentId={d.agentId} body={d.body} />
-            </div>
-          ))
-        )}
-      </section>
-
-      <section className="block">
-        <h2>Ready to post <span className="count">{toPost.length}</span></h2>
-        <p className="note">
-          Approved and not yet posted. Nothing here publishes itself — copy the text, paste it
-          wherever it goes, then mark it posted.
-        </p>
-        {toPost.length === 0 ? (
-          <p className="empty">Nothing waiting to post.</p>
-        ) : (
-          toPost.map((d) => (
-            <div className="post-card" key={d.id}>
-              <div className="draft-head">
-                <strong>{d.agent}</strong>
-                <span>approved {timeAgo(d.createdAt, now)}</span>
-              </div>
-              <div className="draft-body">{d.body}</div>
-              <div className="post-actions">
-                <CopyButton text={d.body} />
-                <MarkPostedForm draftId={d.id} />
-              </div>
-            </div>
-          ))
-        )}
-      </section>
-
-      <section className="block">
-        <h2>Latest brief</h2>
-        <p className="note">
-          Reading material from the Chief of Staff. Never approved or declined — see the README.
-        </p>
-        <div className="brief-box">
-          {brief ? (
-            <>
-              <div className="brief-meta">written {fmtDateTime(brief.created_at)} ({timeAgo(brief.created_at, now)})</div>
-              <div className="brief-body">{brief.body}</div>
-            </>
-          ) : (
-            <p className="empty">No brief yet.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="block">
         <h2>Costs</h2>
         <p className="note">
           List-price equivalents (costBasis: &quot;list&quot;), not a bill — Denis runs these agents on
@@ -248,7 +196,7 @@ export default async function DashboardPage() {
           <div className="stat">
             <div className="stat-label">All time</div>
             <div className="stat-value">{money(grandTotalCost)}</div>
-            <div className="dept">{runEvents.length} run{runEvents.length === 1 ? "" : "s"} recorded</div>
+            <div className="dept">{totalRuns} run{totalRuns === 1 ? "" : "s"} recorded</div>
           </div>
         </div>
 
@@ -277,7 +225,15 @@ export default async function DashboardPage() {
                         {t.runs}
                         {t.runs > t.costedRuns ? ` (${t.runs - t.costedRuns} uncosted)` : ""}
                       </td>
-                      <td className="num">{money(t.totalCostUsd)}</td>
+                      {/* Same "not measured" guard the agent card above already
+                          applies — costedRuns === 0 means nothing here is
+                          priced, not that it cost $0. Without this, this row
+                          printed "$0.0000" for the exact agent the card just
+                          called "not measured", contradicting it on the same
+                          screen. avgCostUsd already carries its own null
+                          (costedRuns === 0) from totalsByAgent, worded "n/a"
+                          to match the CLI's cost report (scripts/costs.ts). */}
+                      <td className="num">{t.costedRuns > 0 ? money(t.totalCostUsd) : "not measured"}</td>
                       <td className="num">{t.avgCostUsd === null ? "n/a" : money(t.avgCostUsd)}</td>
                       <td className="num">{t.outputTokens.toLocaleString()}</td>
                     </tr>
@@ -336,10 +292,6 @@ export default async function DashboardPage() {
           )}
         </div>
       </section>
-
-      <footer className="pagefoot">
-        agentco control room · reads {"'"}src/db.ts{"'"} directly · no data leaves this machine
-      </footer>
-    </main>
+    </>
   );
 }

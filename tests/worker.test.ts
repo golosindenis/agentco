@@ -23,7 +23,7 @@ const task = { id: "t1", agent_id: "a1", kind: "daily_draft", state: "running",
                due_at: "", error: null } as any;
 const weeklyTask = { ...task, kind: "weekly_angles" };
 const briefTask = { ...task, kind: "brief" };
-const agent = { id: "a1", key: "writer", display_name: "Writer", department: "Growth",
+const agent = { id: "a1", key: "writer", display_name: "Writer", department: "Marketing",
                 level: 1, max_level: 4, streak: 0, recent_verdicts: [],
                 instructions: "You are the Writer.", turn_cap: 8, enabled: true } as any;
 
