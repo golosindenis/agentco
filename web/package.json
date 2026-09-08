@@ -1,5 +1,5 @@
 {
-  "name": "agentco-dashboard",
+  "name": "agentco-web",
   "version": "1.0.0",
   "private": true,
   "description": "Local operations dashboard for the agentco engine. Reads and writes through ../src — see the root README's \"one source of truth\" rule.",

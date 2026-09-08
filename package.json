@@ -15,7 +15,8 @@
     "seed": "tsx src/seed.ts",
     "costs": "tsx scripts/costs.ts",
     "drafts": "tsx scripts/drafts.ts",
-    "dashboard": "npm --prefix dashboard run dev"
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
   },
   "keywords": [],
   "author": "",
