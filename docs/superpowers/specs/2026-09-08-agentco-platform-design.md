@@ -95,12 +95,17 @@ agent with a new department string, nothing more.
 
 ### New queries needed
 
-`src/db.ts` covers everything except the agent detail page. Three functions to
-add, following the existing shape:
+`src/db.ts` covers everything except the agent detail and draft review pages.
+Five additions, following the existing shape:
 
 - `getAgentByKey(key)` — agent row including `instructions`
 - `verdictHistory(agentId, limit)` — `approvals` joined to that agent's drafts
 - `eventsForAgent(agentId, limit)` — `events` filtered by agent
+- `getDraftForReview(id)` — one draft with its agent and task kind
+- `setAgentEnabled(agentId, enabled)` — the Pause control's only write
+
+`AgentRow` in `src/types.ts` also gains the `can_publish` field, which the
+column has always had and the type has never declared.
 
 ## Auth
 
