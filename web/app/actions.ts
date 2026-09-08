@@ -25,7 +25,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { recordVerdict, buildLiveReviewDeps } from "../../src/review.js";
-import { markPosted, updateDraftBody } from "../../src/db.js";
+import { getDraftForReview, markPosted, updateDraftBody } from "../../src/db.js";
 import type { Verdict } from "../../src/types.js";
 import { currentUser } from "./lib/supabaseServer";
 
@@ -44,6 +44,37 @@ async function requireAuthorizedUser(): Promise<ActionResult | null> {
   return null;
 }
 
+/**
+ * Guards every verdict-issuing mutation (approveDraft, approveDraftWithEdit,
+ * declineDraft) against acting on a draft that has already been decided.
+ *
+ * recordVerdict (src/review.ts) guards the approval row, the feedback row,
+ * the instruction rule and the ladder move behind its own `hasApproval`
+ * check, but its final `setDraftStatus` call runs unconditionally. So a
+ * stale open page — the other layout, another tab, the CLI already having
+ * decided this draft — submitting a *different* verdict can still flip
+ * `drafts.status` with no approval row, no ladder move, and (on a decline)
+ * silently drop the typed reason: no feedback row, no instruction rule, even
+ * though the UI promises "This becomes a standing rule for the agent."
+ * Fixing that ordering inside recordVerdict is out of scope here (src/ is
+ * frozen for this change); re-reading the draft's current status before any
+ * verdict path runs closes the same hole at the platform layer instead.
+ *
+ * Called both from `recordAndRevalidate` (covers approveDraft, declineDraft,
+ * and the tail of approveDraftWithEdit) and directly at the top of
+ * approveDraftWithEdit's own try block, before its `updateDraftBody` call —
+ * otherwise a stale edit-and-approve could still overwrite an
+ * already-decided draft's body even though the verdict itself gets refused.
+ */
+async function requirePendingDraft(draftId: string): Promise<ActionResult | null> {
+  const draft = await getDraftForReview(draftId);
+  if (!draft) return { ok: false, error: "This draft no longer exists." };
+  if (draft.status !== "pending") {
+    return { ok: false, error: `This draft was already ${draft.status}.` };
+  }
+  return null;
+}
+
 async function recordAndRevalidate(
   draftId: string,
   agentId: string,
@@ -51,6 +82,8 @@ async function recordAndRevalidate(
   reason?: string,
 ): Promise<ActionResult> {
   try {
+    const stale = await requirePendingDraft(draftId);
+    if (stale) return stale;
     const deps = await buildLiveReviewDeps();
     await recordVerdict(deps, draftId, agentId, verdict, reason);
     revalidatePath("/");
@@ -81,6 +114,8 @@ export async function approveDraftWithEdit(formData: FormData): Promise<ActionRe
   if (!editedBody.trim()) return { ok: false, error: "Edited text can't be empty." };
 
   try {
+    const stale = await requirePendingDraft(draftId);
+    if (stale) return stale;
     // The body must be saved before recordVerdict runs — recordVerdict is
     // what flips this draft's status away from "pending", and
     // approvedUnpostedDrafts / scripts/drafts.ts only ever show the body

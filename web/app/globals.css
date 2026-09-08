@@ -891,6 +891,18 @@ footer.pagefoot {
 .action-bar button.tall { min-height: 50px; font-size: 15px; }
 .action-row { display: flex; gap: 10px; }
 
+/* The decline reason field on this screen (`/drafts/[id]`, the most
+   phone-critical page in the app) needs a real 44px touch target — the
+   shared `textarea, input[type="text"]` rule above has no min-height and
+   computes to roughly 30-35px here. Scoped to `.action-bar` (only this
+   page's DraftActions wraps its inline-form in `.action-bar`) rather than
+   raised on the shared rule, so the dashboard's VerdictForms — same
+   `input[type="text"]`, but inside `.verdict-row`/`.inline-form`, not
+   `.action-bar` — keeps its current, deliberately compact desktop sizing. */
+.action-bar input[type="text"] {
+  min-height: 44px;
+}
+
 /* Reuses the same treatment as `.login .err` — a submitted verdict that
    failed server-side (a stale session, a Supabase error) needs the same
    visual weight here as it does on the login form. */

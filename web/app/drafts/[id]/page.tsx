@@ -4,6 +4,7 @@ import { getDraftForReview } from "../../../../src/db.js";
 import { DraftActions } from "./DraftActions";
 import { fmtDateTime } from "../../format";
 import { currentUser } from "../../lib/supabaseServer";
+import { isValidUuid } from "../../lib/isValidUuid";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,18 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
   if (!user) redirect("/login");
 
   const { id } = await params;
+  // getDraftForReview passes `id` straight into a Postgres uuid-typed
+  // filter. A malformed id (not a real draft, but not shaped like a uuid
+  // either — e.g. someone editing the URL by hand) makes that query throw
+  // "invalid input syntax for type uuid", which is a raw database error, not
+  // a "not found". Checking shape first routes that case to the same
+  // notFound() a well-formed-but-nonexistent id already gets, without
+  // touching getDraftForReview itself. A well-formed id that fails because
+  // the database is actually down still throws past this check, uncaught —
+  // that must surface as a real error, not a false "this draft does not
+  // exist" (the app has an error boundary for exactly that, in a later
+  // task).
+  if (!isValidUuid(id)) notFound();
   const draft = await getDraftForReview(id);
   if (!draft) notFound();
 
