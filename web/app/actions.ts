@@ -48,17 +48,17 @@ async function requireAuthorizedUser(): Promise<ActionResult | null> {
  * Guards every verdict-issuing mutation (approveDraft, approveDraftWithEdit,
  * declineDraft) against acting on a draft that has already been decided.
  *
- * recordVerdict (src/review.ts) guards the approval row, the feedback row,
- * the instruction rule and the ladder move behind its own `hasApproval`
- * check, but its final `setDraftStatus` call runs unconditionally. So a
+ * This began as the platform-layer half of a bug in recordVerdict
+ * (src/review.ts), whose final `setDraftStatus` once ran unconditionally: a
  * stale open page — the other layout, another tab, the CLI already having
- * decided this draft — submitting a *different* verdict can still flip
+ * decided this draft — submitting a *different* verdict could flip
  * `drafts.status` with no approval row, no ladder move, and (on a decline)
- * silently drop the typed reason: no feedback row, no instruction rule, even
- * though the UI promises "This becomes a standing rule for the agent."
- * Fixing that ordering inside recordVerdict is out of scope here (src/ is
- * frozen for this change); re-reading the draft's current status before any
- * verdict path runs closes the same hole at the platform layer instead.
+ * silently drop the typed reason, even though the UI promises "This becomes
+ * a standing rule for the agent." That engine bug is fixed on its own branch
+ * (recordVerdict now converges on the verdict actually recorded), so this
+ * guard is no longer the only thing standing between a stale tab and a lost
+ * correction. It stays as defence in depth, and because refusing early gives
+ * the user a clear message instead of a silently-ignored submission.
  *
  * Called both from `recordAndRevalidate` (covers approveDraft, declineDraft,
  * and the tail of approveDraftWithEdit) and directly at the top of
