@@ -93,6 +93,19 @@ body {
   font-size: 12.5px;
 }
 
+/* Bare `p.note` (as opposed to the more specific `section.block > p.note`
+   below) covers the two pages that print a note outside any `section.block`
+   — the error boundary's "this says nothing about whether your agents ran"
+   line inside `.health`, and not-found's "that draft or agent does not
+   exist" line directly under `.wrap`. `section.block > p.note`'s tighter
+   margin still wins by specificity wherever both could apply, so this adds
+   coverage without changing that page's existing spacing. */
+p.note {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
 /* ---- health banner ---- */
 
 .health {
@@ -403,6 +416,21 @@ button.danger {
 
 button.ghost {
   background: transparent;
+}
+
+/* The error boundary's "Try again" button and not-found's "Back to today"
+   link are both reachable from any page, phone screens included, so both
+   need the same >=44px hit target every other phone-reachable control on
+   the dashboard gets — the base `button, .btn` rule above is a compact
+   ~30px. `.retry-btn` keeps `button.primary`'s color; `.back-today` keeps
+   the plain `.btn` treatment `not-found.tsx` also uses. */
+.retry-btn,
+.back-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
 }
 
 /* The "Read" link sits beside the Approve button on the phone stack
