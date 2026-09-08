@@ -635,3 +635,58 @@ footer.pagefoot {
   font-size: 11.5px;
   text-align: center;
 }
+
+/* ---- login ---- */
+
+.login {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 24px;
+}
+
+.login h1 {
+  font-size: 19px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.login-form {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-form label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 700;
+}
+
+.login-form input {
+  min-height: 44px;
+}
+
+.login-form button {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.login-form .hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.login .err {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 0;
+}
