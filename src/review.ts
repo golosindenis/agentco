@@ -94,16 +94,29 @@ export type VerdictResult = {
  * already recorded — e.g. Denis approves from one tab, then a stale second
  * tab declines the same draft with a reason. That second submission is not
  * a retry of the first; it is a conflicting decision arriving after the
- * fact. The recorded verdict already reflects the human decision that
- * actually took effect (approval row, feedback, rule, ladder move all
- * happened for it), so the only thing that can be correct here is to leave
- * all of that alone and set the draft's status from the RECORDED verdict,
- * not the one just submitted — otherwise the status would flip to
- * "declined" with no approval row backing it, while the typed correction
- * that came with it is silently discarded. `alreadyDecided` /
- * `recordedVerdict` on the result let the caller tell the human that
- * happened, since they cannot otherwise distinguish "recorded" from
- * "silently ignored".
+ * fact. What the recorded verdict actually guarantees is narrower than it
+ * looks: an approval row exists for it, because the gate above keys on
+ * `insertApproval` — the FIRST side effect — as the signal that this verdict
+ * was already processed. It does NOT guarantee that feedback, the
+ * instruction rule, and the ladder move landed too. If a previous attempt
+ * threw between `insertApproval` and `saveState`, those are permanently
+ * unapplied — this function has no way to detect or replay just the missing
+ * steps, and a retry (matching or divergent) only ever does the one thing
+ * left undone here: setting the draft's status. That gap is pre-existing,
+ * not introduced by this convergence logic; fixing it for real would mean
+ * per-step idempotence (recording which side effects landed, not just
+ * whether *an* approval row exists) plus a `unique (draft_id)` constraint on
+ * `approvals` so a divergent submission can't insert a second, competing
+ * row — both left for a separate change.
+ *
+ * Given that, the only defensible move here is to leave the recorded
+ * verdict's (possibly incomplete) side effects alone and set the draft's
+ * status from the RECORDED verdict, not the one just submitted — otherwise
+ * the status would flip to "declined" with no approval row backing it,
+ * while the typed correction that came with it is silently discarded.
+ * `alreadyDecided` / `recordedVerdict` on the result let the caller tell the
+ * human that happened, since they cannot otherwise distinguish "recorded"
+ * from "silently ignored".
  */
 export async function recordVerdict(
   deps: ReviewDeps,
@@ -163,8 +176,10 @@ export async function recordVerdict(
   // Converge on what was actually recorded, not on what was just submitted:
   // on a genuine retry `recorded` equals `verdict`, so this is a no-op
   // change of behaviour; on a divergent second submission it reaffirms the
-  // status the recorded verdict actually supports.
-  const effectiveVerdict = alreadyRecorded ? (recorded as Verdict) : verdict;
+  // status the recorded verdict actually supports. `recorded` is only ever
+  // non-null when `alreadyRecorded` is true, so falling back to `verdict`
+  // when it's null is exactly the first-time-verdict case.
+  const effectiveVerdict = recorded ?? verdict;
   await deps.setDraftStatus(draftId, effectiveVerdict === "declined" ? "declined" : "approved");
   return { state, ruleAppended, ruleCount, alreadyDecided: alreadyRecorded, recordedVerdict: recorded };
 }
@@ -231,12 +246,19 @@ export async function buildLiveReviewDeps(): Promise<ReviewDeps> {
       // the oldest is the decision that actually happened first — the one
       // whose approval/feedback/rule/ladder side effects already landed —
       // so it is the one a retry (or a later divergent submission) must
-      // converge back onto.
+      // converge back onto. `created_at` alone is not a reliable tiebreaker:
+      // it defaults to the transaction's start time, `approvals` has no
+      // `unique (draft_id)` constraint, and two rows can land in the same
+      // instant — so this is not truly "oldest first" without a secondary
+      // key. Ordering by `id` next makes the pick deterministic (stable
+      // across calls) even though it is not necessarily the row that was
+      // inserted first when timestamps tie.
       const { data, error } = await supabase
         .from("approvals")
         .select("verdict")
         .eq("draft_id", draftId)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .limit(1);
       if (error) throw new Error(error.message);
       return (data?.[0]?.verdict as Verdict | undefined) ?? null;

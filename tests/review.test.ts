@@ -158,6 +158,32 @@ describe("recordVerdict", () => {
     expect(result.ruleAppended).toBe(false);
   });
 
+  it("retries a recorded approved_with_edit and keeps the draft approved", async () => {
+    // approved_with_edit is the only Verdict that isn't itself the literal
+    // status word — recordVerdict maps it to draft status "approved" via a
+    // default arm (anything that isn't "declined" counts as approved). This
+    // exercises that default arm on the RECORDED verdict, not just as a
+    // freshly-submitted one.
+    const d = deps({ recordedVerdict: vi.fn(async (): Promise<Verdict | null> => "approved_with_edit") });
+    const result = await recordVerdict(d, "d1", "a1", "approved_with_edit");
+    expect(d.insertApproval).not.toHaveBeenCalled();
+    expect(d.saveState).not.toHaveBeenCalled();
+    expect(d.setDraftStatus).toHaveBeenCalledWith("d1", "approved");
+    expect(result.alreadyDecided).toBe(true);
+    expect(result.recordedVerdict).toBe("approved_with_edit");
+  });
+
+  it("keeps the draft approved when a recorded approved_with_edit diverges from a later decline", async () => {
+    const d = deps({ recordedVerdict: vi.fn(async (): Promise<Verdict | null> => "approved_with_edit") });
+    const result = await recordVerdict(d, "d1", "a1", "declined", "actually no, redo it");
+    expect(d.insertApproval).not.toHaveBeenCalled();
+    expect(d.insertFeedback).not.toHaveBeenCalled();
+    expect(d.saveState).not.toHaveBeenCalled();
+    expect(d.setDraftStatus).toHaveBeenCalledWith("d1", "approved");
+    expect(result.alreadyDecided).toBe(true);
+    expect(result.recordedVerdict).toBe("approved_with_edit");
+  });
+
   it("keeps the draft declined when a later approve arrives for an already-declined draft", async () => {
     const d = deps({ recordedVerdict: vi.fn(async (): Promise<Verdict | null> => "declined") });
     const result = await recordVerdict(d, "d1", "a1", "approved");

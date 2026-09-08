@@ -45,6 +45,11 @@ async function ask(prompt: string): Promise<string | typeof EOF> {
   }
 }
 
+/** Human-readable rendering of a verdict, for messages that name one. */
+function verdictLabel(v: Verdict): string {
+  return v === "approved_with_edit" ? "approved with an edit" : v;
+}
+
 /**
  * The brief is read-only (see the `briefs` table comment in the migration):
  * it never enters the approval queue, so it is shown here, up front, purely
@@ -151,13 +156,28 @@ async function main(): Promise<void> {
       if (result.alreadyDecided && result.recordedVerdict !== verdict) {
         const priorStatus = result.recordedVerdict === "declined" ? "declined" : "approved";
         console.log(
-          `\n  ${agent.display_name}'s draft was already ${priorStatus} earlier — from another ` +
-          `review session or surface. This "${verdict}" was NOT recorded; the draft stays ` +
-          `${priorStatus}.` +
+          `\n  ${agent.display_name}'s draft was already recorded as ` +
+          `"${verdictLabel(result.recordedVerdict as Verdict)}" earlier — from another review ` +
+          `session or surface. This "${verdictLabel(verdict)}" was NOT recorded; the draft ` +
+          `stays ${priorStatus}.` +
           (verdict === "declined"
             ? ` The reason you just gave was NOT saved — nothing was added to ` +
               `${agent.display_name}'s instructions.`
             : ""),
+        );
+      } else if (result.alreadyDecided) {
+        // Same-verdict retry: `recorded === verdict`, so this pass didn't do
+        // anything new either — the approval row, feedback, rule and ladder
+        // move (if any) all happened on a prior attempt, or never happened
+        // at all if that prior attempt threw before reaching them (see
+        // recordVerdict's doc comment). Saying "Recorded" here would claim
+        // credit this pass didn't earn. `result.state` comes from a plain
+        // loadState, not from a ladder move made during this call, so it's
+        // just the agent's standing as it already was.
+        console.log(
+          `\n  This "${verdictLabel(verdict)}" was already recorded earlier — this pass didn't ` +
+          `add anything new. ${agent.display_name} is level ${result.state.level}, streak ` +
+          `${result.state.streak}.`,
         );
       } else {
         console.log(
@@ -169,11 +189,10 @@ async function main(): Promise<void> {
         // recordVerdict already knows whether this decline's rule made it into
         // instructions, so the two cap situations are read straight off its
         // result instead of re-querying the agent and guessing which case fired.
-        // This only applies the first time a decline is actually processed —
-        // on a same-verdict retry (`alreadyDecided` true, matching `verdict`)
-        // the rule step was skipped as already done, so there is nothing
-        // cap-related to report here.
-        if (verdict === "declined" && !result.alreadyDecided) {
+        // This branch only runs on a first-time verdict (see the `else if`
+        // above for the already-decided cases), so there's no need to guard
+        // on `result.alreadyDecided` again here.
+        if (verdict === "declined") {
           if (!result.ruleAppended) {
             console.log(
               `\n  This correction was NOT saved to ${agent.display_name}'s instructions: ` +
