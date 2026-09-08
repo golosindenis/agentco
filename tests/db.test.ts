@@ -30,6 +30,9 @@ let latestDraftBody: typeof import("../src/db.js")["latestDraftBody"];
 let latestApprovedDraftBody: typeof import("../src/db.js")["latestApprovedDraftBody"];
 let approvedUnpostedDrafts: typeof import("../src/db.js")["approvedUnpostedDrafts"];
 let markPosted: typeof import("../src/db.js")["markPosted"];
+let getAgentByKey: typeof import("../src/db.js")["getAgentByKey"];
+let verdictHistory: typeof import("../src/db.js")["verdictHistory"];
+let eventsForAgent: typeof import("../src/db.js")["eventsForAgent"];
 
 let agentId: string;
 
@@ -39,6 +42,7 @@ describe.skipIf(!hasCredentials)("db", () => {
     ({
       supabase, claimNextTask, countPendingDrafts, insertDraft, finishTask,
       latestDraftBody, latestApprovedDraftBody, approvedUnpostedDrafts, markPosted,
+      getAgentByKey, verdictHistory, eventsForAgent,
     } = db);
 
     const { data, error } = await supabase
@@ -220,6 +224,39 @@ describe.skipIf(!hasCredentials)("db", () => {
       // The angle bank was never postable, so it must still be absent —
       // markPosted on the daily draft must not have touched it.
       expect(after.some((d) => d.id === anglesDraft!.id)).toBe(false);
+    });
+  });
+
+  describe("getAgentByKey / verdictHistory / eventsForAgent", () => {
+    it("finds an agent by its stable key and returns its instructions", async () => {
+      const agent = await getAgentByKey("writer");
+      expect(agent).not.toBeNull();
+      expect(agent!.display_name).toBe("Writer");
+      expect(typeof agent!.instructions).toBe("string");
+    });
+
+    it("returns null for a key that does not exist", async () => {
+      expect(await getAgentByKey("no_such_agent")).toBeNull();
+    });
+
+    it("returns verdict history newest first, capped at the limit", async () => {
+      const agent = await getAgentByKey("writer");
+      const rows = await verdictHistory(agent!.id, 3);
+      expect(Array.isArray(rows)).toBe(true);
+      expect(rows.length).toBeLessThanOrEqual(3);
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i - 1]!.created_at >= rows[i]!.created_at).toBe(true);
+      }
+    });
+
+    it("returns that agent's events newest first, capped at the limit", async () => {
+      const agent = await getAgentByKey("writer");
+      const rows = await eventsForAgent(agent!.id, 5);
+      expect(Array.isArray(rows)).toBe(true);
+      expect(rows.length).toBeLessThanOrEqual(5);
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i - 1]!.created_at >= rows[i]!.created_at).toBe(true);
+      }
     });
   });
 });

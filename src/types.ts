@@ -37,6 +37,7 @@ export type AgentRow = {
   recent_verdicts: Verdict[];
   instructions: string;
   turn_cap: number;
+  can_publish: boolean;
   enabled: boolean;
 };
 

@@ -511,3 +511,52 @@ export async function getHealthFacts(now: Date = new Date()): Promise<HealthFact
     lastCompletedAt: (lastDone as { finished_at: string }[] | null)?.[0]?.finished_at ?? null,
   };
 }
+
+/** One agent by its stable key, or null when there is no such agent. */
+export async function getAgentByKey(key: string): Promise<AgentRow | null> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw new Error(`getAgentByKey(${key}): ${error.message}`);
+  return (data as AgentRow) ?? null;
+}
+
+/**
+ * This agent's verdicts, newest first. The approvals table has no agent_id —
+ * a verdict belongs to a draft, and the draft belongs to the agent — so the
+ * filter goes through the embedded drafts row rather than a column here.
+ */
+export async function verdictHistory(
+  agentId: string,
+  limit: number,
+): Promise<{ verdict: string; reason: string | null; created_at: string }[]> {
+  const { data, error } = await supabase
+    .from("approvals")
+    .select("verdict, reason, created_at, drafts!inner(agent_id)")
+    .eq("drafts.agent_id", agentId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`verdictHistory(${agentId}): ${error.message}`);
+  return (data ?? []).map((r: any) => ({
+    verdict: r.verdict,
+    reason: r.reason,
+    created_at: r.created_at,
+  }));
+}
+
+/** This agent's events, newest first. */
+export async function eventsForAgent(
+  agentId: string,
+  limit: number,
+): Promise<{ kind: string; detail: Record<string, unknown>; created_at: string }[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("kind, detail, created_at")
+    .eq("agent_id", agentId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`eventsForAgent(${agentId}): ${error.message}`);
+  return (data ?? []) as { kind: string; detail: Record<string, unknown>; created_at: string }[];
+}
