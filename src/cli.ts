@@ -140,30 +140,55 @@ async function main(): Promise<void> {
 
     try {
       const result = await recordVerdict(liveReviewDeps, d.id, d.agent_id, verdict, reason);
-      console.log(
-        `Recorded. ${agent.display_name} is now level ${result.state.level}, streak ${result.state.streak}.`,
-      );
 
-      // The instruction cap is what stops an agent's working memory turning into
-      // Attune's old CLAUDE.md: corrections appended forever, nothing removed.
-      // recordVerdict already knows whether this decline's rule made it into
-      // instructions, so the two cap situations are read straight off its
-      // result instead of re-querying the agent and guessing which case fired.
-      if (verdict === "declined") {
-        if (!result.ruleAppended) {
-          console.log(
-            `\n  This correction was NOT saved to ${agent.display_name}'s instructions: ` +
-            `already at the ${MAX_RULES}-rule cap. Consolidate before the next decline: ` +
-            `merge duplicates and drop rules not violated in 30 days. The full history ` +
-            `stays in the feedback table.`,
-          );
-        } else if (result.ruleCount >= MAX_RULES) {
-          console.log(
-            `\n  ${agent.display_name} has now reached the ${MAX_RULES}-rule cap. ` +
-            `The next correction will be dropped unless you consolidate: merge ` +
-            `duplicates and drop rules not violated in 30 days. The full history ` +
-            `stays in the feedback table.`,
-          );
+      // recordVerdict converges a draft that was already decided onto the
+      // verdict that was actually recorded, not onto whatever was just
+      // submitted here — see its doc comment. When that recorded verdict
+      // differs from `verdict`, this submission changed nothing: no new
+      // approval row, no feedback, no rule, no ladder move. Reporting
+      // "Recorded" in that case would be a lie, and for a discarded decline
+      // it would hide that the reason typed just now was never saved.
+      if (result.alreadyDecided && result.recordedVerdict !== verdict) {
+        const priorStatus = result.recordedVerdict === "declined" ? "declined" : "approved";
+        console.log(
+          `\n  ${agent.display_name}'s draft was already ${priorStatus} earlier — from another ` +
+          `review session or surface. This "${verdict}" was NOT recorded; the draft stays ` +
+          `${priorStatus}.` +
+          (verdict === "declined"
+            ? ` The reason you just gave was NOT saved — nothing was added to ` +
+              `${agent.display_name}'s instructions.`
+            : ""),
+        );
+      } else {
+        console.log(
+          `Recorded. ${agent.display_name} is now level ${result.state.level}, streak ${result.state.streak}.`,
+        );
+
+        // The instruction cap is what stops an agent's working memory turning into
+        // Attune's old CLAUDE.md: corrections appended forever, nothing removed.
+        // recordVerdict already knows whether this decline's rule made it into
+        // instructions, so the two cap situations are read straight off its
+        // result instead of re-querying the agent and guessing which case fired.
+        // This only applies the first time a decline is actually processed —
+        // on a same-verdict retry (`alreadyDecided` true, matching `verdict`)
+        // the rule step was skipped as already done, so there is nothing
+        // cap-related to report here.
+        if (verdict === "declined" && !result.alreadyDecided) {
+          if (!result.ruleAppended) {
+            console.log(
+              `\n  This correction was NOT saved to ${agent.display_name}'s instructions: ` +
+              `already at the ${MAX_RULES}-rule cap. Consolidate before the next decline: ` +
+              `merge duplicates and drop rules not violated in 30 days. The full history ` +
+              `stays in the feedback table.`,
+            );
+          } else if (result.ruleCount >= MAX_RULES) {
+            console.log(
+              `\n  ${agent.display_name} has now reached the ${MAX_RULES}-rule cap. ` +
+              `The next correction will be dropped unless you consolidate: merge ` +
+              `duplicates and drop rules not violated in 30 days. The full history ` +
+              `stays in the feedback table.`,
+            );
+          }
         }
       }
     } catch (err) {

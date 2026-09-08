@@ -40,8 +40,14 @@ export type ReviewDeps = {
   insertFeedback: (agentId: string, reason: string) => Promise<void>;
   loadInstructions: (agentId: string) => Promise<string>;
   saveInstructions: (agentId: string, instructions: string) => Promise<void>;
-  /** Whether an approval row already exists for this draft. */
-  hasApproval: (draftId: string) => Promise<boolean>;
+  /**
+   * The verdict already recorded for this draft, or null if none has been
+   * recorded yet. This carries the verdict itself, not just whether one
+   * exists, because a retry must converge the draft's status on what was
+   * actually RECORDED, not on whatever the current submission carries — see
+   * recordVerdict's doc comment.
+   */
+  recordedVerdict: (draftId: string) => Promise<Verdict | null>;
 };
 
 export type VerdictResult = {
@@ -50,6 +56,17 @@ export type VerdictResult = {
   ruleAppended: boolean;
   /** rule count after this verdict */
   ruleCount: number;
+  /** true when a verdict for this draft was already recorded before this call */
+  alreadyDecided: boolean;
+  /**
+   * The verdict that was already recorded for this draft going into this
+   * call, or null on a first-time verdict. When `alreadyDecided` is true and
+   * this differs from the verdict the caller just submitted, the submission
+   * was NOT applied — no new approval row, no feedback, no rule, no ladder
+   * move — the draft's status was instead reaffirmed from this recorded
+   * verdict, and the caller should tell the human their input was discarded.
+   */
+  recordedVerdict: Verdict | null;
 };
 
 /**
@@ -67,11 +84,26 @@ export type VerdictResult = {
  * so the human sees it again and can re-verdict it.
  *
  * That re-verdict must not double-apply the parts that already succeeded
- * (double feedback, a second ladder move) — `hasApproval` is what makes a
- * retry safe: it is checked once, up front, and that single result gates
+ * (double feedback, a second ladder move) — `recordedVerdict` is what makes
+ * a retry safe: it is checked once, up front, and that single result gates
  * both the approval/feedback/instructions block and the ladder block below,
  * so a retry does only the one thing that didn't happen last time: setting
  * the draft's status.
+ *
+ * That gate also has to handle a submission that DIVERGES from what was
+ * already recorded — e.g. Denis approves from one tab, then a stale second
+ * tab declines the same draft with a reason. That second submission is not
+ * a retry of the first; it is a conflicting decision arriving after the
+ * fact. The recorded verdict already reflects the human decision that
+ * actually took effect (approval row, feedback, rule, ladder move all
+ * happened for it), so the only thing that can be correct here is to leave
+ * all of that alone and set the draft's status from the RECORDED verdict,
+ * not the one just submitted — otherwise the status would flip to
+ * "declined" with no approval row backing it, while the typed correction
+ * that came with it is silently discarded. `alreadyDecided` /
+ * `recordedVerdict` on the result let the caller tell the human that
+ * happened, since they cannot otherwise distinguish "recorded" from
+ * "silently ignored".
  */
 export async function recordVerdict(
   deps: ReviewDeps,
@@ -80,7 +112,8 @@ export async function recordVerdict(
   verdict: Verdict,
   reason?: string,
 ): Promise<VerdictResult> {
-  const alreadyRecorded = await deps.hasApproval(draftId);
+  const recorded = await deps.recordedVerdict(draftId);
+  const alreadyRecorded = recorded !== null;
 
   let ruleAppended = false;
   let ruleCount = 0;
@@ -127,8 +160,13 @@ export async function recordVerdict(
     state = await deps.loadState(agentId);
   }
 
-  await deps.setDraftStatus(draftId, verdict === "declined" ? "declined" : "approved");
-  return { state, ruleAppended, ruleCount };
+  // Converge on what was actually recorded, not on what was just submitted:
+  // on a genuine retry `recorded` equals `verdict`, so this is a no-op
+  // change of behaviour; on a divergent second submission it reaffirms the
+  // status the recorded verdict actually supports.
+  const effectiveVerdict = alreadyRecorded ? (recorded as Verdict) : verdict;
+  await deps.setDraftStatus(draftId, effectiveVerdict === "declined" ? "declined" : "approved");
+  return { state, ruleAppended, ruleCount, alreadyDecided: alreadyRecorded, recordedVerdict: recorded };
 }
 
 /**
@@ -187,13 +225,21 @@ export async function buildLiveReviewDeps(): Promise<ReviewDeps> {
         .update({ instructions }).eq("id", agentId);
       if (error) throw new Error(error.message);
     },
-    async hasApproval(draftId) {
-      const { count, error } = await supabase
+    async recordedVerdict(draftId) {
+      // Ordered oldest-first with limit(1): normally at most one approval
+      // row exists per draft, but if a race ever produced more than one,
+      // the oldest is the decision that actually happened first — the one
+      // whose approval/feedback/rule/ladder side effects already landed —
+      // so it is the one a retry (or a later divergent submission) must
+      // converge back onto.
+      const { data, error } = await supabase
         .from("approvals")
-        .select("id", { count: "exact", head: true })
-        .eq("draft_id", draftId);
+        .select("verdict")
+        .eq("draft_id", draftId)
+        .order("created_at", { ascending: true })
+        .limit(1);
       if (error) throw new Error(error.message);
-      return (count ?? 0) > 0;
+      return (data?.[0]?.verdict as Verdict | undefined) ?? null;
     },
   };
 }
