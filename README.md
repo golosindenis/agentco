@@ -33,8 +33,24 @@ printf 'reply with exactly: OK\n' | claude -p
 npm install
 ```
 
-Copy `.env.example` to `.env` and fill in the Supabase URL and **service role**
-key (not the anon key). `.env` is gitignored.
+Copy `.env.example` to `.env` and fill in all five variables (`.env` is
+gitignored):
+
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — for the CLI and worker.
+  **Service role**, not anon — this key bypasses RLS entirely.
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — for the web
+  app's auth client (`web/middleware.ts`, `web/app/lib/supabaseServer.ts`).
+  Same project, the anon key this time. `web/next.config.mjs` loads this
+  same root `.env`, so nothing extra is needed to run `npm run web` — but a
+  real deploy (Vercel, etc.) needs these set as actual environment
+  variables in that platform, since there is no `.env` file there. See
+  `.env.example` for which of the five are safe to expose to a browser.
+- `ALLOWED_EMAIL` — the one address allowed to sign in to the web app.
+
+All five are validated at startup (`web/app/lib/env.ts`, checked from both
+the middleware and the server auth client): a missing one throws an error
+naming it, instead of the generic 500 you'd otherwise get from deep inside
+`@supabase/ssr`.
 
 **3. Apply `supabase/migrations/0001_init.sql`** in the Supabase SQL editor, then
 seed the agents:
@@ -42,6 +58,19 @@ seed the agents:
 ```bash
 npm run seed
 ```
+
+**Only run `npm run seed` once, against a fresh database, before any agent
+has ever run for real.** It `upsert`s the three agents `onConflict: "key"`
+and overwrites `instructions` wholesale — it is not idempotent against a
+live system. The whole point of the ladder is that an agent's `instructions`
+accumulate real rules appended from Denis's declines (e.g. the Writer
+currently carries "No invented client stories. I have not watched this
+happen. Write from the idea, not a fake anecdote.", added after a real
+decline). Running `npm run seed` again deletes every rule the system has
+learned since the initial seed and silently resets each agent's voice to
+the three hardcoded defaults in `src/seed.ts` — exactly the feedback loop
+this app's whole premise depends on. If you need to add a new agent later,
+insert it directly rather than re-running `seed`.
 
 ## Daily use
 
@@ -92,6 +121,16 @@ stale, the fix is to check the LaunchAgent, not to look for a button here.
 Installed to the home screen it opens without browser chrome, straight to
 the login screen. Deployed at: `<DEPLOYED_URL — fill in after the Vercel
 deploy>`.
+
+**Deploy step: point the Supabase Site URL at the real domain.**
+`sendCode` (`web/app/login/actions.ts`) calls `signInWithOtp` without an
+`emailRedirectTo`, so the magic link in the email follows whatever "Site
+URL" is configured for the Supabase project — Authentication > URL
+Configuration in the Supabase dashboard. That currently points at
+localhost. Until it is changed to the deployed domain at deploy time,
+magic links sent from the live site will redirect back to a developer's
+localhost instead of the deployed app. This is a manual dashboard change,
+not something in this repo to fix.
 
 **Local sign-in without email:** `node scripts/dev-session.mjs` mints a real
 signed-in session cookie for `ALLOWED_EMAIL` via the Supabase admin API,

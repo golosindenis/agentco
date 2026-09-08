@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "./app/lib/allowlist";
+import { requireSupabaseEnv } from "./app/lib/env";
 
 /**
  * Runs before every matched request. Refreshing the session here — rather
@@ -10,9 +11,16 @@ import { isAllowedEmail } from "./app/lib/allowlist";
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  // Validated up front: without this, a missing var reaches
+  // createServerClient below and throws its own generic, unhelpful error
+  // (e.g. "supabaseUrl is required") on every matched request — see
+  // web/app/lib/env.ts for why this check needs to live in a shared,
+  // Edge-safe module rather than only in supabaseServer.ts.
+  const { url: supabaseUrl, anonKey: supabaseAnonKey } = requireSupabaseEnv();
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),

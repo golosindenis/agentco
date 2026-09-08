@@ -291,14 +291,24 @@ describe.skipIf(!hasCredentials)("db", () => {
 
     beforeAll(async () => {
       const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      // enabled: false — this block only exercises verdictHistory /
+      // eventsForAgent, and neither consults `enabled` (both filter purely
+      // on agent_id — see src/db.ts). Left at the schema default of `true`,
+      // these would be real, immediately-claimable agents for however long
+      // they exist before the afterAll cleanup below: the tasks inserted
+      // just below take the schema defaults state='queued', due_at=now(),
+      // so claim_next_task() (which only excludes disabled agents) could
+      // hand one to a worker that fires mid-test, spawning a real headless
+      // `claude` run for a fake agent with no real instructions. Disabling
+      // them removes that risk without weakening what this block tests.
       const { data: a, error: aErr } = await supabase.from("agents")
-        .insert({ key: `test_scope_a_${suffix}`, display_name: "Test Scope A", department: "Test" })
+        .insert({ key: `test_scope_a_${suffix}`, display_name: "Test Scope A", department: "Test", enabled: false })
         .select().single();
       if (aErr) throw aErr;
       agentA = a!.id;
 
       const { data: b, error: bErr } = await supabase.from("agents")
-        .insert({ key: `test_scope_b_${suffix}`, display_name: "Test Scope B", department: "Test" })
+        .insert({ key: `test_scope_b_${suffix}`, display_name: "Test Scope B", department: "Test", enabled: false })
         .select().single();
       if (bErr) throw bErr;
       agentB = b!.id;
@@ -349,16 +359,58 @@ describe.skipIf(!hasCredentials)("db", () => {
     });
 
     afterAll(async () => {
+      // If either agent insert in beforeAll above threw (e.g. the second
+      // one, after the first already succeeded), the corresponding local
+      // is left `undefined`. Passing that straight into `.in("id", [...])`
+      // sends `undefined` through to a uuid-typed column and errors on the
+      // cast — which would abort this hook before the *other*, successfully
+      // created agent ever gets deleted, leaving a fake "Test Scope A/B"
+      // agent permanently in the production `agents` table (visible on
+      // /org and in the sidebar forever). Filter undefined ids out first so
+      // a partial beforeAll still cleans up whatever it managed to create.
+      const agentIds = [agentA, agentB].filter(
+        (id): id is string => typeof id === "string",
+      );
+
       // events.agent_id is ON DELETE SET NULL (not CASCADE) — deleting the
       // agents below would orphan these rows (agent_id -> null) rather than
       // remove them, so they must be deleted explicitly first.
       if (eventIds.length) {
-        await supabase.from("events").delete().in("id", eventIds);
+        const { error: eventsDelErr } = await supabase
+          .from("events").delete().in("id", eventIds);
+        if (eventsDelErr) {
+          throw new Error(
+            `cleanup failed: could not delete ${eventIds.length} scoped test event(s) ` +
+            `(ids: ${eventIds.join(", ")}): ${eventsDelErr.message}`,
+          );
+        }
       }
+
       // tasks.agent_id, drafts.agent_id/task_id, and approvals.draft_id are
       // all ON DELETE CASCADE, so deleting the two agents cleans up every
       // task/draft/approval inserted above.
-      await supabase.from("agents").delete().in("id", [agentA, agentB]);
+      if (agentIds.length) {
+        const { error: agentsDelErr } = await supabase
+          .from("agents").delete().in("id", agentIds);
+        if (agentsDelErr) {
+          throw new Error(
+            `cleanup failed: could not delete test agent(s) (ids: ${agentIds.join(", ")}): ` +
+            `${agentsDelErr.message}`,
+          );
+        }
+      }
+
+      // Fail loudly rather than silently leaving a fake agent behind: if
+      // beforeAll didn't manage to create both agentA and agentB, cleanup
+      // by definition couldn't have deleted both either.
+      if (agentIds.length < 2) {
+        throw new Error(
+          "cleanup incomplete: expected 2 test agents to exist and be deleted " +
+          `(agentA=${agentA ?? "undefined"}, agentB=${agentB ?? "undefined"}) — ` +
+          "one of the beforeAll inserts above must have failed. Check the agents " +
+          'table for a leftover "Test Scope A" or "Test Scope B" row and remove it by hand.',
+        );
+      }
     });
 
     it("verdictHistory returns only the requested agent's verdicts, and the limit truncates", async () => {
