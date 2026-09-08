@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAllowedEmail } from "./app/lib/allowlist";
 
 /**
  * Runs before every matched request. Refreshing the session here — rather
@@ -28,7 +29,13 @@ export async function middleware(request: NextRequest) {
 
   const { data } = await supabase.auth.getUser();
 
-  if (!data.user) {
+  // A session existing only proves someone signed in — this Supabase
+  // project has open signup, so it says nothing about *whose* session it
+  // is. Every request must also clear the same allowlist check the login
+  // form and the auth callback use, or a second account created directly
+  // against the Supabase auth API would pass this gate with full
+  // service-role read/write of the live database behind it.
+  if (!data.user || !isAllowedEmail(data.user.email ?? "", process.env.ALLOWED_EMAIL ?? "")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";

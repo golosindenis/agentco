@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * The dashboard's three mutations. Each one is a thin wrapper: the actual
+ * The dashboard's four mutations. Each one is a thin wrapper: the actual
  * work is `recordVerdict` (src/review.ts) or `markPosted` (src/db.ts) —
  * this file only pulls fields out of a submitted <form>, validates what the
  * spec requires (a decline needs a non-empty reason, see below), and
@@ -13,13 +13,36 @@
  * do, and both run exclusively on the server (this file has no "use client"
  * export, and Next never ships a "use server" action's body to the browser,
  * only a reference to call it).
+ *
+ * Every exported action below calls `requireAuthorizedUser()` first, before
+ * touching anything else — including `approveDraftWithEdit`'s call to
+ * `updateDraftBody`, which happens before its own `recordAndRevalidate`.
+ * This does not lean on `web/middleware.ts` covering the route: Server
+ * Actions are callable directly and are expected to authorize themselves
+ * (https://nextjs.org/docs/app/building-your-application/authentication#server-actions),
+ * so the matcher in `web/middleware.ts` is defense in depth here, not the
+ * only thing standing between an unallowed session and a live write.
  */
 import { revalidatePath } from "next/cache";
 import { recordVerdict, buildLiveReviewDeps } from "../../src/review.js";
 import { markPosted, updateDraftBody } from "../../src/db.js";
 import type { Verdict } from "../../src/types.js";
+import { currentUser } from "./lib/supabaseServer";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The single place every mutation below checks who's calling. Returns a
+ * ready-to-return `ActionResult` failure when the caller isn't the allowed,
+ * signed-in user, or `null` when it's safe to proceed — never throws, so
+ * callers can `if (unauthorized) return unauthorized;` and keep the same
+ * failure shape the rest of this file already uses.
+ */
+async function requireAuthorizedUser(): Promise<ActionResult | null> {
+  const user = await currentUser();
+  if (!user) return { ok: false, error: "Not authorized." };
+  return null;
+}
 
 async function recordAndRevalidate(
   draftId: string,
@@ -38,6 +61,9 @@ async function recordAndRevalidate(
 }
 
 export async function approveDraft(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
   const draftId = String(formData.get("draftId") ?? "");
   const agentId = String(formData.get("agentId") ?? "");
   if (!draftId || !agentId) return { ok: false, error: "Missing draft or agent id." };
@@ -45,6 +71,9 @@ export async function approveDraft(formData: FormData): Promise<ActionResult> {
 }
 
 export async function approveDraftWithEdit(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
   const draftId = String(formData.get("draftId") ?? "");
   const agentId = String(formData.get("agentId") ?? "");
   const editedBody = String(formData.get("editedBody") ?? "");
@@ -65,6 +94,9 @@ export async function approveDraftWithEdit(formData: FormData): Promise<ActionRe
 }
 
 export async function declineDraft(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
   const draftId = String(formData.get("draftId") ?? "");
   const agentId = String(formData.get("agentId") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();
@@ -79,6 +111,9 @@ export async function declineDraft(formData: FormData): Promise<ActionResult> {
 }
 
 export async function markDraftPosted(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
   const draftId = String(formData.get("draftId") ?? "");
   if (!draftId) return { ok: false, error: "Missing draft id." };
   try {
