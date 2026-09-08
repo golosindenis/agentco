@@ -4,7 +4,7 @@ const AGENTS = [
   {
     key: "strategist",
     display_name: "Strategist",
-    department: "Growth",
+    department: "Marketing",
     turn_cap: 12,
     instructions: [
       "You are the Strategist for Denis's businesses.",
@@ -19,7 +19,7 @@ const AGENTS = [
   {
     key: "writer",
     display_name: "Writer",
-    department: "Growth",
+    department: "Marketing",
     turn_cap: 8,
     instructions: [
       "You are the Writer for Denis's businesses.",

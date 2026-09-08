@@ -20,8 +20,18 @@ export async function getSupabaseAuthClient() {
       cookies: {
         getAll: () => cookieStore.getAll(),
         setAll: (toSet) => {
-          for (const { name, value, options } of toSet) {
-            cookieStore.set(name, value, options);
+          try {
+            for (const { name, value, options } of toSet) {
+              cookieStore.set(name, value, options);
+            }
+          } catch {
+            // Called from a Server Component, `cookies().set()` throws —
+            // Server Components can't write response cookies. This fires
+            // whenever `getUser()` triggers a token refresh (e.g. from the
+            // in-page auth check in page.tsx), which is expected here. It's
+            // safe to swallow because the middleware already refreshes the
+            // session and writes it back on every matched request; this
+            // client only needs `set` to exist so `getUser()` doesn't crash.
           }
         },
       },

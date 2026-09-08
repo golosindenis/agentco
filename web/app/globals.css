@@ -690,3 +690,101 @@ footer.pagefoot {
   font-size: 13px;
   margin: 0;
 }
+
+/* ---- app shell ---- */
+
+.shell { display: flex; min-height: 100dvh; }
+.shell-main { flex: 1; min-width: 0; }
+
+/* The phone and desktop screens show the same facts at different densities.
+   Both render; CSS picks one. Rendering both is cheap here because the data
+   is loaded once and shared, and it avoids a layout shift on first paint
+   that a JS width check would cause. */
+.only-narrow { display: block; }
+.only-wide { display: none; }
+.sidebar { display: none; }
+
+@media (min-width: 900px) {
+  .only-narrow { display: none; }
+  .only-wide { display: block; }
+  .sidebar { display: flex; }
+}
+
+.sidebar {
+  width: 224px;
+  flex: none;
+  flex-direction: column;
+  gap: 26px;
+  padding: 22px 14px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar .brand { font-size: 15px; font-weight: 700; padding: 0 8px; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-section { display: flex; flex-direction: column; gap: 6px; }
+
+.sidebar-section-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar-section-head .num { font-family: var(--mono); color: var(--border-strong); }
+.sidebar-section-items { display: flex; flex-direction: column; gap: 1px; }
+
+.side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.side-item.on { background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+
+.side-pending {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* ---- bottom nav (phone) ---- */
+
+.bottom-nav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-item {
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.nav-item.on { color: var(--accent); font-weight: 700; }
+
+@media (min-width: 900px) { .bottom-nav { display: none; } }
