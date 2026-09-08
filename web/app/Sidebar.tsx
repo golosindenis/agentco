@@ -22,12 +22,12 @@ export function Sidebar({
 
       <nav className="sidebar-nav">
         <Link href="/" className={active === "/" ? "side-item on" : "side-item"}>
-          Overview
+          <span>Overview</span>
+          {pendingTotal > 0 && <span className="side-pending">{pendingTotal} waiting</span>}
         </Link>
         <Link href="/activity" className={active === "/activity" ? "side-item on" : "side-item"}>
           Activity
         </Link>
-        {pendingTotal > 0 && <span className="side-count">{pendingTotal} waiting</span>}
       </nav>
 
       {groups.map((group) => (

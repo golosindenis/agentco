@@ -6,6 +6,13 @@ import { PROMOTE_AFTER } from "../../src/ladder.js";
 import { money, timeAgo, fmtTime } from "./format";
 import { summarizeDetail, detailTone } from "./eventDetail";
 import { HEALTH_LABEL } from "./lib/viewModel";
+import {
+  BriefSection,
+  PendingSection,
+  ReadyToPostSection,
+  type PendingDraft,
+  type ApprovedDraft,
+} from "./PendingSections";
 
 type RecentEvent = {
   id: string;
@@ -23,9 +30,19 @@ type DayTotal = { date: string; runs: number; totalCostUsd: number };
  * state, cost telemetry, recent activity. This is what page.tsx rendered
  * before the phone stack existed, moved here unchanged apart from taking
  * its data as props instead of fetching it.
+ *
+ * It also carries the same action surface TodayView has (brief, pending
+ * verdicts, ready-to-post) — the phone and desktop layouts show the same
+ * facts at different densities, and approving a draft is not a fact you
+ * can leave off the desktop view. These sections reuse the exact same
+ * components as TodayView (see PendingSections.tsx); nothing here
+ * reimplements verdicts, copy, or mark-posted.
  */
 export function OverviewView({
   health,
+  brief,
+  pending,
+  toPost,
   agents,
   pendingCounts,
   lastRun,
@@ -41,6 +58,9 @@ export function OverviewView({
   now,
 }: {
   health: HealthResult;
+  brief: { body: string; created_at: string } | null;
+  pending: PendingDraft[];
+  toPost: ApprovedDraft[];
   agents: AgentRow[];
   pendingCounts: Record<string, number>;
   lastRun: Record<string, string>;
@@ -71,6 +91,10 @@ export function OverviewView({
           ))}
         </ul>
       </section>
+
+      <PendingSection pending={pending} now={now} />
+      <BriefSection brief={brief} now={now} />
+      <ReadyToPostSection toPost={toPost} now={now} />
 
       <section className="block">
         <h2>The agents <span className="count">{agents.length}</span></h2>

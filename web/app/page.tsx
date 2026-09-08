@@ -81,6 +81,9 @@ export default async function DashboardPage() {
         <div className="only-wide">
           <OverviewView
             health={health}
+            brief={brief}
+            pending={pending}
+            toPost={toPost}
             agents={agents}
             pendingCounts={pendingCounts}
             lastRun={lastRun}

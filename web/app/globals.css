@@ -405,6 +405,47 @@ button.ghost {
   background: transparent;
 }
 
+/* The "Read" link sits beside the Approve button on the phone stack
+   (TodayView) and, when the pending section is reused on desktop, beside
+   it there too. `.side-item` (styled for the desktop sidebar at ~33px
+   tall) is too short for a 44px touch target, so this gets its own class
+   rather than lowering the bar for the sidebar. `min-height` + flex
+   centering guarantees >=44px regardless of font line-height math, and
+   the border/radius/weight match `button, .btn` so the two read as one
+   control group. */
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.draft-read {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.draft-read:hover {
+  filter: brightness(0.97);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .draft-read:hover {
+    filter: brightness(1.15);
+  }
+}
+
 details.edit-box, details.decline-box {
   flex-basis: 100%;
 }
