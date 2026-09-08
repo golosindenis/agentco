@@ -593,3 +593,12 @@ export async function getDraftForReview(id: string): Promise<{
     kind: row.tasks?.kind ?? "",
   };
 }
+
+/** Enable or pause an agent. A paused agent is skipped by claim_next_task. */
+export async function setAgentEnabled(agentId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("agents")
+    .update({ enabled })
+    .eq("id", agentId);
+  if (error) throw new Error(`setAgentEnabled(${agentId}): ${error.message}`);
+}

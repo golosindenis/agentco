@@ -159,3 +159,28 @@ export async function markDraftPosted(formData: FormData): Promise<ActionResult>
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Pause or resume an agent (`agents.enabled`). Guarded the same way as
+ * every mutation above — `requireAuthorizedUser()` first, before touching
+ * anything else. There is no draft in play here, so `requirePendingDraft`
+ * doesn't apply; `setAgentEnabled` (src/db.ts) is a plain, unconditional
+ * write.
+ */
+export async function toggleAgentPaused(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
+  const agentId = String(formData.get("agentId") ?? "");
+  const enabled = String(formData.get("enabled") ?? "") === "true";
+  if (!agentId) return { ok: false, error: "Missing agent." };
+  try {
+    const { setAgentEnabled } = await import("../../src/db.js");
+    await setAgentEnabled(agentId, enabled);
+    revalidatePath("/agents");
+    revalidatePath("/org");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

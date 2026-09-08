@@ -911,3 +911,42 @@ footer.pagefoot {
   font-size: 13px;
   margin: 0;
 }
+
+/* ---- agent detail (/agents/[key]) ---- */
+
+.rule-row {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rule-row:last-child { border-bottom: none; }
+.rule-num { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.stat .stat-sub { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+.stat-value .of { font-size: 13px; color: var(--text-faint); font-weight: 500; }
+.agent-card { text-decoration: none; color: inherit; }
+
+/* The event log on this page is already scoped to one agent, so it drops
+   the shared `.feed-row`'s "agent" column (time/agent/kind/detail, 4 cols)
+   in favor of time/kind/detail — reusing the bare 4-column template here
+   would leave the row one column short and misaligned. */
+.feed-row.agent-events {
+  grid-template-columns: 130px 150px 1fr;
+}
+
+/* `.head-actions` holds the Pause/Resume control next to the "Next run"
+   label in the page header — reachable on the phone layout (this page has
+   no wide/narrow split), so its button needs the same >=44px hit target
+   every other phone-reachable control on the dashboard gets, not the
+   default compact desktop button sizing. */
+.head-actions { display: flex; align-items: center; gap: 12px; }
+.head-actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+}
