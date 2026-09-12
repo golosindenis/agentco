@@ -16,7 +16,12 @@ export async function sendCode(_prev: LoginResult, formData: FormData): Promise<
   const supabase = await getSupabaseAuthClient();
   const { error } = await supabase.auth.signInWithOtp({
     email: email.trim(),
-    options: { shouldCreateUser: true },
+    // The project has signup disabled, so this could only ever fail — asking
+    // for creation here would earn Supabase's raw "Signups not allowed for
+    // this instance" in place of the allowlist's own wording. The allowlist
+    // above is what decides who may sign in; this call only sends a code to
+    // someone who already exists.
+    options: { shouldCreateUser: false },
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true, sent: true };
