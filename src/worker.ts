@@ -4,6 +4,7 @@ import { TASK_PROMPTS } from "./prompts.js";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
+import { SUBJECTS, subjectFor } from "./subjects.js";
 import type { BriefFacts } from "./db.js";
 
 export type WorkerOutcome =
@@ -117,7 +118,15 @@ export async function processOne(
         await deps.finishTask(task.id, "failed", reason);
         return "failed";
       }
-      taskPrompt = `${taskPrompt}\n\n## Approved angle bank\n\n${angleBank}`;
+      // Which business today's post is for, and the voice it takes. Fixed by
+      // weekday in src/subjects.ts rather than left to the Writer, which has
+      // no memory between runs and would otherwise starve whichever subject
+      // the angle bank happened to list last.
+      const subject = SUBJECTS[subjectFor(new Date())];
+      taskPrompt =
+        `${taskPrompt}\n\n## Today's subject: ${subject.label}\n\n${subject.voice}` +
+        `\n\nChoose an angle from the bank below that fits this subject.` +
+        `\n\n## Approved angle bank\n\n${angleBank}`;
     }
     if (isBrief) {
       // The brief has nothing to draw on besides its own instructions and

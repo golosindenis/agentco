@@ -7,7 +7,7 @@ export type AgentState = {
   recent: Verdict[];
 };
 
-export type TaskKind = "weekly_angles" | "daily_draft" | "brief";
+export type TaskKind = "weekly_angles" | "daily_draft" | "brief" | "wholesale_outreach";
 export type TaskState = "queued" | "running" | "done" | "failed";
 
 /** Task kinds whose approved drafts are things Denis actually publishes.
@@ -15,7 +15,7 @@ export type TaskState = "queued" | "running" | "done" | "failed";
  *  Writer can read it, never to be posted. brief is absent too, though for a
  *  different reason — briefs live in their own `briefs` table and are never
  *  rows in `drafts` at all, so they could never appear here regardless. */
-export const POSTABLE_KINDS: TaskKind[] = ["daily_draft"];
+export const POSTABLE_KINDS: TaskKind[] = ["daily_draft", "wholesale_outreach"];
 
 export type TaskRow = {
   id: string;

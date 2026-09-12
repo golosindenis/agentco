@@ -20,4 +20,13 @@ export const TASK_PROMPTS: Record<TaskKind, string> = {
     "beyond those facts. If every count in it is zero, say plainly that " +
     "nothing ran overnight rather than padding that out into a longer brief. " +
     "Keep it under 150 words.",
+  wholesale_outreach:
+    "Draft one first-contact wholesale message for The Solution, the mouth tape " +
+    "brand, to a UAE retailer. Pick one realistic stockist type — pharmacy chain, " +
+    "sleep or wellness retailer, concept store — and name it as the addressee so " +
+    "the message is specific rather than a template. Never quote a price in a " +
+    "first message: the aim is a reply, not a transaction. Do not claim a " +
+    "certification, a stockist or a result the brand has not got. Keep it under " +
+    "120 words. Output only the message, with no subject line, preamble or " +
+    "commentary.",
 };
