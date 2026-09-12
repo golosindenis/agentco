@@ -355,3 +355,43 @@ them from his pocket. Everything from here is a question about habit, not code
 — the agreed measurement is drafts reviewed within a day of being produced,
 sustained over two weeks. If that stays near zero now, the interface was never
 the problem and more agents would be the wrong response.
+
+## 2026-09-12 (later still) — the measurement, before the cloud runner
+
+Denis asked to build the cloud runner next. Pushed back: the 2026-09-08 spec
+makes it conditional on drafts being reviewed within a day, sustained over a
+fortnight, and phone login had been working for about an hour. He delegated the
+call — "build what you think" — so this was built instead.
+
+`/org` now reads, against real data on the day it shipped:
+
+    Reviewed within a day    50%   2 of 4     (last 14 days)
+    Median time to review    5m               (when a draft does get reviewed)
+
+Two things that number already says, on day zero, that memory would not have:
+
+- **Speed is not the problem.** Five minutes median. When he opens a draft he
+  decides almost immediately.
+- **The denominator is the problem.** Four eligible drafts in a fortnight. A
+  50% rate over four events is not evidence about anything, and it is a good
+  argument against deciding a $30/month question from it today. It also hints
+  the company may simply not be producing much — a different failure from the
+  one the panel was built to watch for.
+
+Design in `docs/superpowers/specs/2026-09-12-review-latency-panel-design.md`.
+Structure mirrors `costs.ts`: `src/db.ts` fetches and computes nothing,
+`src/cadence.ts` is pure and takes `now` as an argument so every window
+boundary is testable without waiting for one. Nine tests, the important pair
+being that an empty window returns `rate: null` while a window where nothing
+was reviewed returns `rate: 0` — "none produced" and "all ignored" are opposite
+conclusions and a single 0% renders them identically.
+
+Named `cadence.ts` because `src/review.ts` already exists and holds
+`recordVerdict`. Reusing that name would have put "record a verdict" and
+"measure how fast verdicts happen" behind one word.
+
+No new CSS — the `.cost-summary`/`.stat` vocabulary and the "not measured"
+phrasing already existed.
+
+**The baseline caveat:** those 4 drafts predate phone login, so this is a
+before picture, not a verdict. The fortnight starts now.

@@ -18,6 +18,9 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (6b4cf3d) — `/org` shows whether drafts are reviewed within a day
+  (trailing 14d) plus median time to review. `src/cadence.ts` is pure and tested;
+  `rate` is null, not 0, when nothing is eligible.
 - 2026-09-12 (af34694, bb02d13, e74a227) — **login works from his phone.** Custom
   SMTP via Resend was the unlock: Supabase locks email templates on the built-in
   mailer, so `{{ .Token }}` could not be added until SMTP existed. Signup now
@@ -31,8 +34,6 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-08 (a959693) — engine: `recordVerdict` now converges a retried verdict on
   the outcome actually recorded, instead of flipping the draft's status and
   discarding the decline reason.
-- 2026-09-08 (0676b45) — the hosted phone-first app merged: five routes, auth gate on
-  every one, 158 tests. Replaces the local `dashboard/`.
 
 ## Hard-Won Rules
 
