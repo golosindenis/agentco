@@ -276,10 +276,29 @@ builds clone the whole repo and work. Deploy through git.
 
 Unchanged from the last entry, both on Supabase, neither reachable from code:
 
-- **Site URL still points at localhost.** `signInWithOtp` passes no
-  `emailRedirectTo`, so the magic link follows it and a phone tap lands on a
-  dead localhost. Authentication > URL Configuration; set it to the production
-  URL and add `<url>/auth/callback` as a redirect.
-- **Signup is still open** (`disable_signup: false`). The app's single-address
-  allowlist is the only control; a second account created directly against the
-  Supabase auth API is refused by the app but still exists.
+- **Signup is still open** (`disable_signup: false`, re-verified live on
+  2026-09-12). The app's single-address allowlist is the only control. Safe to
+  turn off now: the project holds exactly one user, `golosindenis@gmail.com`,
+  confirmed, so disabling signup cannot lock him out.
+- **The Magic Link email template has no `{{ .Token }}`.** See below.
+
+### The Site URL worry was wrong; the email template is the real one
+
+Earlier entries said the localhost Site URL would break the phone login. It
+does not, because this app never follows a redirect to sign in. `sendCode`
+calls `signInWithOtp` and the form then asks for a **typed six-digit code**,
+which `verifyCode` hands to `verifyOtp`. Nothing reads Site URL on that path.
+
+The real blocker sits one setting over. Supabase's default Magic Link template
+contains only `{{ .ConfirmationURL }}`, so the email arrives as a link with no
+code in it and the form has nothing to accept. Confirmed by sending a live code
+to the allowed address on 2026-09-12 and reading what landed. The template needs
+`{{ .Token }}`.
+
+Resist the tempting inversion — "the email has a link, so use the link". The
+code is requested by a **server action**, so the PKCE code verifier is stored in
+a cookie belonging to whichever browser made the request. A link tapped inside
+phone mail opens somewhere without that cookie and the exchange cannot complete.
+`web/app/auth/callback/route.ts` is a genuine fallback, but only for clicking
+the link in the same browser that asked. The typed code is the thing that works
+across devices, which is the whole point of a phone-first app.
