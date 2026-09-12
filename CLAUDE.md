@@ -18,6 +18,9 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (121cabc) — a daily_draft now fails loudly when the approved angle
+  bank has nothing for the day's subject, instead of improvising. Strategist
+  learned the dash rule through a real decline; third bank came back clean.
 - 2026-09-12 (731e74e) — the Marketing department got a content strategy:
   `src/subjects.ts` rotates the daily draft over Attune / Denis / agentco by
   weekday with per-subject voice, and The Solution got its own Friday
@@ -32,10 +35,6 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-12 (a431c02) — **the site is up.** The Vercel project's Framework Preset
   was "Other", so the Next builder never ran and the deploy was one lone middleware
   lambda. `vercel.json` now declares `"framework": "nextjs"`. SSO protection off.
-
-- 2026-09-08 (a959693) — engine: `recordVerdict` now converges a retried verdict on
-  the outcome actually recorded, instead of flipping the draft's status and
-  discarding the decline reason.
 
 ## Hard-Won Rules
 

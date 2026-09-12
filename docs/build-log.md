@@ -491,3 +491,46 @@ Verified by running the Strategist: 7 angles, 4 [Attune], 1 [Denis],
 about Denis coaching his own family — flagged to him, since declining it would
 usefully extend the learned rule from invented client stories to invented
 personal ones.
+
+## 2026-09-12 (late) — the correction loop, proven
+
+The content strategy shipped, then the first real verdicts on it exposed two
+things worth keeping.
+
+**The app cannot reject one angle out of a bank.** Denis approved the first
+tagged bank and said he had declined angle 5, an invented claim about him
+coaching his own family. The database disagreed: a plain `approved`, no reason,
+angle 5 still in the body. A `weekly_angles` bank is one draft with one
+verdict, so "approve these six, reject that one" is not expressible. His
+instinct was right and the system had no way to record it.
+
+It bit immediately: the next day was a Denis day on the new rota and angle 5
+was the only [Denis] angle, so the Writer would have built a personal post on
+an invented anecdote. Angle 5 was edited out of the approved body by hand.
+
+That left the bank with no [Denis] angle at all, which the worker would have
+handled by improvising. Now it does not: `bankHasSubject` plus a guard that
+logs `no_angle_for_subject` and fails the task without spending a run (121cabc)
+— the same treatment the codebase already gives a missing bank.
+
+**A decline teaches; an approve does not.** The hand-edit fixed the artifact
+and taught the ladder nothing. The second bank came back clean of invented
+biography but carried 13 hyphenated compounds, against the standing no-dashes
+rule. Declined through `recordVerdict` with the reason, which appended the
+sharpened rule to the Strategist's instructions (rule 13 of 30) and reset the
+streak. The third bank: **zero dashes of any kind**, coverage intact, and
+noticeably better angles. The loop changes behaviour, but only through the
+decline path.
+
+Three Strategist runs, roughly $0.75, two rules learned.
+
+### Open design work, deliberately not started
+
+- **Per-angle verdicts.** Approving a bank is currently all or nothing. This is
+  the gap that forced a hand-edit of production tonight.
+- **Rule consolidation.** The Strategist is at 13 of `MAX_RULES` 30, and two of
+  them now say "use no dashes". The instruction block is becoming a pile of
+  corrections rather than a brief. The CLI already warns near the cap.
+- **The ladder advanced on a bank Denis did not fully endorse** — the Writer's
+  streak moved on the first approve. Worth deciding whether an approve-with-
+  reservations needs its own verdict.
