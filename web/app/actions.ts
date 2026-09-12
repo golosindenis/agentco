@@ -25,6 +25,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { recordVerdict, buildLiveReviewDeps } from "../../src/review.js";
+import { parseAngles, planAngleVerdict } from "../../src/angles.js";
 import { getDraftForReview, markPosted, updateDraftBody } from "../../src/db.js";
 import type { Verdict } from "../../src/types.js";
 import { currentUser } from "./lib/supabaseServer";
@@ -80,12 +81,13 @@ async function recordAndRevalidate(
   agentId: string,
   verdict: Verdict,
   reason?: string,
+  opts: { makeRule?: boolean } = {},
 ): Promise<ActionResult> {
   try {
     const stale = await requirePendingDraft(draftId);
     if (stale) return stale;
     const deps = await buildLiveReviewDeps();
-    await recordVerdict(deps, draftId, agentId, verdict, reason);
+    await recordVerdict(deps, draftId, agentId, verdict, reason, opts);
     revalidatePath("/");
     return { ok: true };
   } catch (err) {
@@ -126,6 +128,60 @@ export async function approveDraftWithEdit(formData: FormData): Promise<ActionRe
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
   return recordAndRevalidate(draftId, agentId, "approved_with_edit");
+}
+
+/**
+ * Submits per-angle keeps and drops from a weekly angle bank.
+ *
+ * One form, three possible verdicts, decided by what survived:
+ *   kept everything  -> approved, body untouched
+ *   kept some        -> approved_with_edit, body renumbered
+ *   kept nothing     -> declined, which needs a reason like any other decline
+ *
+ * Reasons for dropped angles are joined into the one reason the verdict
+ * carries, so the feedback row and any rule read the way a human wrote them.
+ * `makeRule` is opt-in per submission: dropping a weak angle should not spend
+ * one of MAX_RULES, which exist for corrections that generalise.
+ */
+export async function submitAngleVerdicts(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
+  const draftId = String(formData.get("draftId") ?? "");
+  const agentId = String(formData.get("agentId") ?? "");
+  const body = String(formData.get("body") ?? "");
+  if (!draftId || !agentId) return { ok: false, error: "Missing draft or agent id." };
+
+  const angles = parseAngles(body);
+  if (!angles) return { ok: false, error: "This draft is not an angle bank." };
+
+  const dropped = new Set(formData.getAll("drop").map((v) => Number(v)));
+  const reasons = new Map(
+    angles.map((a) => [a.n, String(formData.get(`reason-${a.n}`) ?? "")]),
+  );
+  const makeRule = formData.get("makeRule") === "on";
+
+  // The three-way rule lives in src/angles.ts so it can be tested without a
+  // request. This function is only the plumbing around it.
+  const plan = planAngleVerdict(angles, dropped, reasons);
+
+  if (plan.verdict === "declined" && !plan.reason) {
+    return { ok: false, error: "Dropping every angle is a decline, which needs a reason." };
+  }
+
+  if (plan.body !== null) {
+    try {
+      const stale = await requirePendingDraft(draftId);
+      if (stale) return stale;
+      // Same ordering rule as approveDraftWithEdit: the body must land before
+      // recordVerdict flips the status away from pending.
+      await updateDraftBody(draftId, plan.body);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  return recordAndRevalidate(draftId, agentId, plan.verdict, plan.reason, { makeRule });
 }
 
 export async function declineDraft(formData: FormData): Promise<ActionResult> {

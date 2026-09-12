@@ -124,6 +124,7 @@ export async function recordVerdict(
   agentId: string,
   verdict: Verdict,
   reason?: string,
+  opts: { makeRule?: boolean } = {},
 ): Promise<VerdictResult> {
   const recorded = await deps.recordedVerdict(draftId);
   const alreadyRecorded = recorded !== null;
@@ -140,9 +141,22 @@ export async function recordVerdict(
     // exported and callers other than the CLI may not pre-trim.
     const trimmedReason = reason?.trim();
 
-    if (verdict === "declined" && trimmedReason) {
-      await deps.insertFeedback(agentId, trimmedReason);
+    // A decline always teaches — that loop is the ladder's whole point and is
+    // unchanged here. An edit teaches only when the reviewer asks: dropping a
+    // weak angle from a bank should not spend one of the MAX_RULES slots,
+    // which are a scarce resource meant for corrections that generalise.
+    // Either way the reason is worth keeping as feedback.
+    const teaches = Boolean(trimmedReason) &&
+      (verdict === "declined" || opts.makeRule === true);
 
+    // The feedback row is the record of what was said, independent of whether
+    // it became a standing rule. A reason given and then dropped on the floor
+    // is the failure this whole change exists to fix.
+    if (trimmedReason) {
+      await deps.insertFeedback(agentId, trimmedReason);
+    }
+
+    if (teaches && trimmedReason) {
       const instructions = await deps.loadInstructions(agentId);
       const currentCount = countRules(instructions);
       if (currentCount < MAX_RULES) {

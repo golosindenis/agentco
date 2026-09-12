@@ -229,3 +229,43 @@ describe("appendRule", () => {
     expect(appendRule("", "Too Salesy")).toBe("Too Salesy");
   });
 });
+
+describe("recordVerdict rule learning", () => {
+  it("appends a rule on an edit when the reviewer asks for one", async () => {
+    const d = deps();
+    const r = await recordVerdict(d, "d1", "a1", "approved_with_edit", "No fake stats.", {
+      makeRule: true,
+    });
+    expect(r.ruleAppended).toBe(true);
+    expect(d.insertFeedback).toHaveBeenCalledWith("a1", "No fake stats.");
+    expect(d.saveInstructions).toHaveBeenCalled();
+  });
+
+  it("records the reason but appends no rule when the reviewer does not ask", async () => {
+    // Dropping a weak angle should not spend one of the 30 rule slots. The
+    // reason is still worth keeping as feedback.
+    const d = deps();
+    const r = await recordVerdict(d, "d1", "a1", "approved_with_edit", "Weak angle.");
+    expect(r.ruleAppended).toBe(false);
+    expect(d.insertFeedback).toHaveBeenCalledWith("a1", "Weak angle.");
+    expect(d.saveInstructions).not.toHaveBeenCalled();
+  });
+
+  it("still appends a rule on a decline with no makeRule passed", async () => {
+    // The existing loop, unchanged. Proven working 2026-09-12 and the reason
+    // this change is additive rather than a replacement.
+    const d = deps();
+    const r = await recordVerdict(d, "d1", "a1", "declined", "No invented biography.");
+    expect(r.ruleAppended).toBe(true);
+    expect(d.saveInstructions).toHaveBeenCalled();
+  });
+
+  it("appends nothing when there is no reason, whatever the flag says", async () => {
+    const d = deps();
+    const r = await recordVerdict(d, "d1", "a1", "approved_with_edit", "   ", {
+      makeRule: true,
+    });
+    expect(r.ruleAppended).toBe(false);
+    expect(d.insertFeedback).not.toHaveBeenCalled();
+  });
+});

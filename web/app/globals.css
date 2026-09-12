@@ -998,3 +998,47 @@ footer.pagefoot {
   display: inline-flex;
   align-items: center;
 }
+
+/* ---- per-angle verdicts ---- */
+
+.angle-pick {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-raised);
+}
+
+.angle-pick label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+/* Big enough to hit with a thumb: this screen is reviewed on a phone. */
+.angle-pick input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.angle-pick.dropped { opacity: 0.55; }
+.angle-pick.dropped > label > span { text-decoration: line-through; }
+
+.angle-pick input[type="text"] {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.rule-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.rule-toggle input[type="checkbox"] { width: 18px; height: 18px; }
