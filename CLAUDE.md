@@ -39,6 +39,15 @@ instructions so the correction sticks. **Nothing publishes.**
   correct fixes were shipped against that symptom before anyone looked at
   `vercel inspect`, whose build list names the problem in one line. `vercel.json`
   now pins the preset so a dashboard setting cannot decide this again.
+- **The Magic Link email template must contain `{{ .Token }}`.** Login is a typed
+  six-digit code — `signInWithOtp` then `verifyOtp`, never a redirect — but
+  Supabase's default template ships only `{{ .ConfirmationURL }}`, so the email
+  arrives with a link and the form has nothing to type into. Do not "fix" this by
+  switching to the link instead: the code is requested server-side, so the PKCE
+  verifier cookie lives in whichever browser asked, and a link tapped in phone
+  mail cannot exchange it. The typed code is what makes this work cross-device,
+  and `web/app/auth/callback/route.ts` is a fallback for the same-browser case
+  only. Site URL is therefore irrelevant to login, despite what earlier notes said.
 - **Deployment Protection (SSO) hides every runtime failure.** It 302s requests at
   the edge before the function runs, so nothing is invoked and the runtime log
   stays empty forever. Turn it off before debugging anything in production.
