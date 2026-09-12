@@ -276,10 +276,11 @@ builds clone the whole repo and work. Deploy through git.
 
 Unchanged from the last entry, both on Supabase, neither reachable from code:
 
-- **Signup is still open** (`disable_signup: false`, re-verified live on
-  2026-09-12). The app's single-address allowlist is the only control. Safe to
-  turn off now: the project holds exactly one user, `golosindenis@gmail.com`,
-  confirmed, so disabling signup cannot lock him out.
+- ~~Signup is still open~~ **Closed 2026-09-12.** `disable_signup: true`,
+  verified live in both directions: the allowed address still gets a code
+  (200), a stranger is refused by Supabase itself (422 `signup_disabled`)
+  rather than only by the app's allowlist. Note this makes
+  `shouldCreateUser: true` in `web/app/login/actions.ts` dead intent.
 - **The Magic Link email template has no `{{ .Token }}`.** See below.
 
 ### The Site URL worry was wrong; the email template is the real one
