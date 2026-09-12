@@ -534,3 +534,60 @@ Three Strategist runs, roughly $0.75, two rules learned.
 - **The ladder advanced on a bank Denis did not fully endorse** — the Writer's
   streak moved on the first approve. Worth deciding whether an approve-with-
   reservations needs its own verdict.
+
+## 2026-09-12 (last) — per-angle verdicts
+
+The gap logged three entries up, closed the same night. An angle bank was one
+draft with one verdict, so "approve these six, reject that one" could not be
+said, and saying it anyway meant hand-editing production with a regex while the
+ladder learned nothing.
+
+Most of the machinery already existed and was already right. `ladder.ts` gives
+`approved_with_edit` exactly the treatment this needs — streak resets so there
+is no promotion credit, but it does not count toward demotion, which is
+precisely "nearly right". That file is untouched.
+
+Two things were actually missing:
+
+1. **An edit taught nothing.** `recordVerdict` wrote a feedback row and appended
+   a rule only on `declined`, and `approveDraftWithEdit` passed no reason at
+   all. The condition is now decline-with-reason (unchanged, still tested) OR
+   explicitly requested via `makeRule`. Denis chose opt-in over always-append
+   because the Strategist sits at 13 of `MAX_RULES` 30 with two rules already
+   saying the same thing; the cap belongs to corrections that generalise, not
+   to notes about one weak angle. A reason always writes the feedback row
+   regardless — a reason given and dropped on the floor is the whole failure
+   being fixed here.
+
+2. **Editing a seven-angle bank meant retyping it in a textarea, on a phone.**
+   Which is why the decline button got reached for instead.
+
+`src/angles.ts` holds `parseAngles`, `formatAngles` and `planAngleVerdict` —
+all pure, 12 tests, no database. The three-way rule (keep all → plain approve,
+keep some → edit with survivors renumbered, keep none → decline needing a
+reason) lives there rather than inside the server action, so it is testable
+without a request. Keeping everything deliberately records a plain `approved`:
+an edit verdict would reset the streak for a review that changed nothing.
+
+The per-angle UI is detected from the body, not stored on the draft — a body
+that parses as two or more numbered angles gets it, prose keeps the textarea —
+so the two can never disagree about what the screen is editing.
+
+**A verification mistake worth recording.** The deployed build was first checked
+by scanning an approved draft's JS chunks for "Pick angles". That check could
+never have passed: `DraftActions` renders only for pending drafts, so its chunk
+is not linked on an approved one. It produced a confident and wrong "never
+deployed", and an unnecessary empty retrigger commit (9c5c684). The honest test
+was creating a temporary pending bank on production, confirming the control
+rendered, and deleting it. Draft counts were verified back to 2 declined /
+6 approved afterwards.
+
+193 tests. Spec: `docs/superpowers/specs/2026-09-12-per-angle-verdicts-design.md`.
+
+### Still open
+
+- **Rule consolidation.** Strategist at 13 of 30, two rules duplicating the
+  no-dashes instruction. The CLI already warns near the cap.
+- **The ladder advanced on a bank Denis did not fully endorse** on the first
+  approve of the night. Whether approve-with-reservations needs its own verdict
+  is undecided — though per-angle verdicts now make that case rarer.

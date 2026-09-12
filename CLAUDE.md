@@ -18,6 +18,9 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (cecd5dd) — per-angle verdicts on an angle bank: untick to drop,
+  survivors renumbered. A reason always records; a rule appends only when asked.
+  `src/angles.ts` is pure and tested; `ladder.ts` unchanged.
 - 2026-09-12 (121cabc) — a daily_draft now fails loudly when the approved angle
   bank has nothing for the day's subject, instead of improvising. Strategist
   learned the dash rule through a real decline; third bank came back clean.
@@ -32,10 +35,6 @@ instructions so the correction sticks. **Nothing publishes.**
   SMTP via Resend was the unlock: Supabase locks email templates on the built-in
   mailer, so `{{ .Token }}` could not be added until SMTP existed. Signup now
   disabled; `shouldCreateUser` flipped to false.
-- 2026-09-12 (a431c02) — **the site is up.** The Vercel project's Framework Preset
-  was "Other", so the Next builder never ran and the deploy was one lone middleware
-  lambda. `vercel.json` now declares `"framework": "nextjs"`. SSO protection off.
-
 ## Hard-Won Rules
 
 - **The Vercel project's Framework Preset must stay Next.js.** It was created as
