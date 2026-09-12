@@ -44,6 +44,11 @@ instructions so the correction sticks. **Nothing publishes.**
   correct fixes were shipped against that symptom before anyone looked at
   `vercel inspect`, whose build list names the problem in one line. `vercel.json`
   now pins the preset so a dashboard setting cannot decide this again.
+- **A failure path must carry the child's stderr out with it.** `runAgent`'s
+  timeout reported only its own duration, so four real timeouts across
+  2026-09-07/08 left nothing to investigate — the stderr that would have named
+  the cause was collected and dropped. Any new bail-out in `runner.ts` must do
+  what `interpretRun` already does and include what the child said.
 - **Signup is disabled on the Supabase project; keep `shouldCreateUser: false`.**
   Flipping it back cannot create anyone — it only swaps the allowlist's own
   "That address cannot sign in." for Supabase's "Signups not allowed for this

@@ -286,6 +286,31 @@ describe("runAgent process handling", () => {
   );
 
   it(
+    "keeps what the child said before it was killed, so a timeout is diagnosable",
+    async () => {
+      // Four real runs timed out across 2026-09-07 and 2026-09-08 and left
+      // nothing behind but "timed out after 600000ms" — the child's stderr,
+      // which is where a rate-limit or auth message would appear, was
+      // collected in the closure and then discarded. A timeout that destroys
+      // its own evidence cannot be investigated after the fact.
+      const script =
+        'process.stderr.write("Claude usage limit reached"); setInterval(() => {}, 1000);';
+      const result = await runAgent(agent, "hello", {
+        command: "node",
+        args: ["-e", script],
+        timeoutMs: 500,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toContain("timed out");
+        expect(result.reason).toContain("Claude usage limit reached");
+      }
+    },
+    10_000,
+  );
+
+  it(
     "resolves ok:false with an output-exceeded reason when stdout is unbounded",
     async () => {
       const script = `

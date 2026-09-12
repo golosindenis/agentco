@@ -85,6 +85,16 @@ export function buildChildEnv(
   return env;
 }
 
+/**
+ * Last `max` characters of a stream, for embedding in a failure reason. The
+ * end is the useful end: a process that fails after a long preamble says why
+ * on its final lines.
+ */
+export function tail(text: string, max = 500): string {
+  const t = text.trim();
+  return t.length <= max ? t : `…${t.slice(-max)}`;
+}
+
 export const RUN_TIMEOUT_MS = 600_000; // 10 minutes
 export const MAX_OUTPUT_CHARS = 200_000;
 export const KILL_GRACE_MS = 2_000;
@@ -236,9 +246,18 @@ export function runAgent(
 
     const timer = setTimeout(() => {
       killChild(child);
+      // Carry out whatever the child managed to say. A timeout that reports
+      // only its own duration destroys the only evidence of what the child
+      // was doing — four runs died this way across 2026-09-07/08 and left
+      // nothing to investigate. stderr is where a rate-limit, auth or
+      // network message appears; the stdout length separates "produced
+      // nothing at all" from "was mid-answer when the clock ran out".
       finish({
         ok: false,
-        reason: `${command} timed out after ${timeoutMs}ms`,
+        reason:
+          `${command} timed out after ${timeoutMs}ms` +
+          ` (stdout ${stdout.length} chars` +
+          `${stderr.trim() ? `, stderr: ${tail(stderr)}` : ", stderr empty"})`,
       });
     }, timeoutMs);
     timer.unref();
