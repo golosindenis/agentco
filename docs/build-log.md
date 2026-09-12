@@ -449,3 +449,45 @@ drafts. Two are pending now. If Denis doesn't review, the company throttles
 itself to a stop — which means "drafts produced" and "drafts reviewed" are not
 independent measurements, and a low draft count may be a *symptom* of not
 reviewing rather than a separate problem.
+
+## 2026-09-12 (night) — the Marketing department gets a subject
+
+Asked what the content strategy was. The answer was visible in the agents'
+own instructions: both Strategist and Writer worked for "Denis's businesses",
+plural and unnamed. Everything downstream was guardrails — no fabricated
+stories, no dashes, never call an Attune coach AI — which say what not to do
+and never what to aim at. The Strategist had been picking angles for an
+unspecified company, which is why `weekly_angles` had run once and the output
+was generic enough to approve without it mattering.
+
+Denis chose all four subjects, and The Solution getting its own task kind.
+
+**`src/subjects.ts`** is the strategy in the only form that changes output: a
+fixed weekday rota over Attune, Denis personally and agentco, each carrying
+the voice the Writer must use, appended to the daily_draft prompt. Attune gets
+three slots of seven to agentco's one.
+
+Deterministic rather than the Writer's choice, because the Writer has no
+memory between runs: asked to "pick one", it drifts to whatever the bank lists
+first and starves the rest. Tests assert every subject appears within a week
+and that the rota reads the LOCAL day, so a late catch-up run posts the
+subject for the day Denis is living in.
+
+**The Solution got `wholesale_outreach`, weekly on Fridays.** Its work is
+outbound to named buyers, not audience content; a slot in a daily post rota
+would have been a category error. Prompt forbids quoting a price in a first
+message, per the standing rule.
+
+Strategy lives in code, not in agent instructions, so it is versioned and
+diffable — and so editing it never risks the rules the ladder has learned from
+declines, which live in the database. The two instruction edits that were
+needed (Writer: follow the named subject voice, not one house voice;
+Strategist: tag angles and cover all three) were applied via the REST API with
+an assertion that the learned line survived last. **`npm run seed` was not
+run and must not be.**
+
+Verified by running the Strategist: 7 angles, 4 [Attune], 1 [Denis],
+2 [agentco], tags parsing, no dashes. One angle asserted a biographical claim
+about Denis coaching his own family — flagged to him, since declining it would
+usefully extend the learned rule from invented client stories to invented
+personal ones.

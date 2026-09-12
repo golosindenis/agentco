@@ -18,6 +18,10 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (731e74e) — the Marketing department got a content strategy:
+  `src/subjects.ts` rotates the daily draft over Attune / Denis / agentco by
+  weekday with per-subject voice, and The Solution got its own Friday
+  `wholesale_outreach` kind. Scheduler installed and firing.
 - 2026-09-12 (6b4cf3d) — `/org` shows whether drafts are reviewed within a day
   (trailing 14d) plus median time to review. `src/cadence.ts` is pure and tested;
   `rate` is null, not 0, when nothing is eligible.
@@ -28,9 +32,7 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-12 (a431c02) — **the site is up.** The Vercel project's Framework Preset
   was "Other", so the Next builder never ran and the deploy was one lone middleware
   lambda. `vercel.json` now declares `"framework": "nextjs"`. SSO protection off.
-- 2026-09-08 (bb41511, bf43059, d0d3b1b) — Vercel deploy attempts: root-dependency
-  install, static `NEXT_PUBLIC_*` reads, `web/` declared ESM. Each correct, none of
-  them the cause.
+
 - 2026-09-08 (a959693) — engine: `recordVerdict` now converges a retried verdict on
   the outcome actually recorded, instead of flipping the draft's status and
   discarding the decline reason.
