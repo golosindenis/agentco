@@ -395,3 +395,57 @@ phrasing already existed.
 
 **The baseline caveat:** those 4 drafts predate phone login, so this is a
 before picture, not a verdict. The fortnight starts now.
+
+## 2026-09-12 (evening) — why the company had stopped
+
+The cadence panel said 4 drafts in a fortnight. Investigating that was more
+productive than the panel itself.
+
+**The company had not run since 2026-09-08.** Last draft 09-08, last event of
+any kind 09-08 07:47. Two separate faults:
+
+**1. The LaunchAgent was never installed at the new path.** `launchctl list`
+showed nothing and `~/Library/LaunchAgents/` held no agentco plist. The plist
+existed in the repo, correctly pointing at `/Users/denisgolosin/agentco`, but
+was never loaded after the repo moved off `~/Desktop` to escape the TCC block.
+`launchd.err.log` still held the old Desktop failures, which is what made this
+look already-solved. Runs on 09-06 through 09-08 were manual.
+
+Installed and loaded 2026-09-12. Test-fired with `launchctl kickstart`: whole
+run 34 seconds, both agents produced, `last exit code = 0`, and — the thing
+that needed proving — **`launchd.err.log` stayed empty**. launchd can execute
+the script from `~/agentco`. That was never demonstrated before today; it was
+assumed from the fact that the path had changed.
+
+**2. Runs that did happen timed out — cause still unknown.** Four runs died at
+exactly 600000ms across 09-07 and 09-08, across all three agents.
+
+Investigated properly and the code is exonerated: the identical path, through
+`runAgent` with the real Chief of Staff prompt and the same restricted env,
+completes in **6.3 seconds**. A bare `claude -p` with that env: 8.1 seconds.
+Global MCP server count is 0, so the startup-overhead theory is dead. Tonight's
+launchd run: 34 seconds for two agents. The failures are environmental and
+time-of-day correlated — uniform 600000ms across three different short prompts
+is a process blocked, not busy.
+
+**It could not be diagnosed further because the failure path destroyed its own
+evidence.** A non-zero exit has always carried stderr out (`interpretRun`); the
+timeout reported only its own duration and dropped both stderr and partial
+stdout. Fixed (adfa801) — a timeout now reads
+`claude timed out after 600000ms (stdout N chars, stderr: …)`.
+
+Leading hypothesis, unconfirmed: a Claude usage limit. The CLI waits rather
+than erroring when it hits one, which would produce exactly this — every agent
+hanging identically, in a morning burst, resolving later in the day. Fits
+[[usage-limit-ruflo-plugins]]. The next occurrence will say so in the event
+detail instead of needing to be guessed.
+
+**What this means for the cadence panel shipped an hour earlier:** it was about
+to measure Denis's review habit against a supply of zero for two weeks and
+report a reassuring number. Worth knowing on day zero rather than on the 26th.
+
+**And a mechanism worth watching:** backpressure blocks an agent at 3 pending
+drafts. Two are pending now. If Denis doesn't review, the company throttles
+itself to a stop — which means "drafts produced" and "drafts reviewed" are not
+independent measurements, and a low draft count may be a *symptom* of not
+reviewing rather than a separate problem.
