@@ -46,6 +46,10 @@ is a different question from "do I review at all", and both matter.
 
 ## Architecture
 
+> Named `cadence.ts`, not `review.ts`: `src/review.ts` already exists and holds
+> `recordVerdict`, the verdict engine. Overloading the word would put "record a
+> verdict" and "measure how fast verdicts happen" behind one name.
+
 Mirrors `src/costs.ts` exactly — a Supabase fetch that does no arithmetic, and a
 pure module that does arithmetic with no network.
 
@@ -57,7 +61,7 @@ pure module that does arithmetic with no network.
   Lives in `db.ts` because every query in this project does ("one source of
   truth").
 
-- **`src/review.ts` — `reviewStats(rows, now)` (new module, pure)**
+- **`src/cadence.ts` — `reviewStats(rows, now)` (new module, pure)**
   ```ts
   export type ReviewRow = { createdAt: string; reviewedAt: string | null };
   export type ReviewStats = {
@@ -77,7 +81,7 @@ pure module that does arithmetic with no network.
 
 ## Testing
 
-`src/review.ts` gets real unit tests, no database:
+`src/cadence.ts` gets real unit tests, no database:
 
 - empty input → `rate: null`, renders as "no drafts yet"
 - a draft created 2 hours ago is excluded from `eligible` entirely

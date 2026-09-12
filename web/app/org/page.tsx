@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { listAgents, pendingDraftCountsByAgent } from "../../../src/db.js";
+import { listAgents, pendingDraftCountsByAgent, draftReviewTimes } from "../../../src/db.js";
+import { reviewStats } from "../../../src/cadence.js";
 import { MAX_PENDING_DRAFTS } from "../../../src/capacity.js";
 import { groupByDepartment } from "../lib/viewModel";
 import { AgentLadder } from "../AgentLadder";
@@ -17,10 +18,12 @@ export default async function OrgPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  const [agents, pendingCounts] = await Promise.all([
+  const [agents, pendingCounts, reviewRows] = await Promise.all([
     listAgents(),
     pendingDraftCountsByAgent(),
+    draftReviewTimes(14),
   ]);
+  const cadence = reviewStats(reviewRows, new Date());
   const groups = groupByDepartment(agents);
 
   return (
@@ -33,6 +36,41 @@ export default async function OrgPage() {
             <span className="sub">
               {agents.length} agents · {groups.length} departments
             </span>
+          </div>
+
+          {/* The cloud runner is conditional on this number, not on a
+              memory of it — see docs/superpowers/specs/2026-09-12-
+              review-latency-panel-design.md. Reads "no drafts yet" rather
+              than 0% when nothing is eligible, because "none were produced"
+              and "all were ignored" are opposite conclusions. */}
+          <div className="cost-summary">
+            <div className="stat">
+              <div className="stat-label">Reviewed within a day</div>
+              <div className="stat-value">
+                {cadence.rate === null ? (
+                  "no drafts yet"
+                ) : (
+                  <>
+                    {Math.round(cadence.rate * 100)}%{" "}
+                    <span className="of">
+                      {cadence.reviewedWithinDay} of {cadence.eligible}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="stat-sub">last 14 days</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Median time to review</div>
+              <div className="stat-value">
+                {cadence.medianHours === null
+                  ? "not measured"
+                  : `${cadence.medianHours < 1
+                      ? Math.round(cadence.medianHours * 60) + "m"
+                      : Math.round(cadence.medianHours) + "h"}`}
+              </div>
+              <div className="stat-sub">when a draft does get reviewed</div>
+            </div>
           </div>
 
           {groups.map((group) => (

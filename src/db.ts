@@ -602,3 +602,29 @@ export async function setAgentEnabled(agentId: string, enabled: boolean): Promis
     .eq("id", agentId);
   if (error) throw new Error(`setAgentEnabled(${agentId}): ${error.message}`);
 }
+
+/**
+ * Every draft created in the last `days`, with the time of its FIRST verdict
+ * or null if it has none. Feeds `src/cadence.ts`, which does all the
+ * arithmetic — this function deliberately computes nothing.
+ *
+ * Earliest approval, not latest: a draft re-decided later was still reviewed
+ * the first time, and the panel measures how long Denis takes to look at a
+ * draft, not how long until its final state settled.
+ */
+export async function draftReviewTimes(
+  days: number,
+): Promise<{ createdAt: string; reviewedAt: string | null }[]> {
+  const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("created_at, approvals(created_at)")
+    .gte("created_at", since);
+  if (error) throw new Error(`draftReviewTimes failed: ${error.message}`);
+  return ((data ?? []) as unknown as
+    { created_at: string; approvals: { created_at: string }[] | null }[]
+  ).map((row) => {
+    const times = (row.approvals ?? []).map((a) => a.created_at).sort();
+    return { createdAt: row.created_at, reviewedAt: times[0] ?? null };
+  });
+}
