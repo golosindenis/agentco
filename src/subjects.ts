@@ -23,6 +23,8 @@ export type SubjectKey = "attune" | "denis" | "agentco";
 
 export type Subject = {
   label: string;
+  /** How the Strategist marks this subject's angles in the bank, e.g. [Attune]. */
+  tag: string;
   /** Appended to the daily_draft prompt. Tells the Writer whose voice to use. */
   voice: string;
 };
@@ -30,6 +32,7 @@ export type Subject = {
 export const SUBJECTS: Record<SubjectKey, Subject> = {
   attune: {
     label: "Attune",
+    tag: "Attune",
     voice:
       "Write for Attune, the hormone intelligent fitness app for women. Follow the " +
       "attune-viral-content voice: specific, plain, written for a woman who is tired " +
@@ -38,6 +41,7 @@ export const SUBJECTS: Record<SubjectKey, Subject> = {
   },
   denis: {
     label: "Denis personally",
+    tag: "Denis",
     voice:
       "Write in Denis's own voice for his personal accounts, @becoming_denis on " +
       "Instagram and @becomingdenis on X. Follow the my-content skill. Build in " +
@@ -46,6 +50,7 @@ export const SUBJECTS: Record<SubjectKey, Subject> = {
   },
   agentco: {
     label: "agentco",
+    tag: "agentco",
     voice:
       "Write about building the agent company itself, for founders watching the build " +
       "in public. The material is real and generated daily by the system, so draw on " +
@@ -72,4 +77,9 @@ const ROTA: SubjectKey[] = [
 
 export function subjectFor(date: Date): SubjectKey {
   return ROTA[date.getDay()]!;
+}
+
+/** Whether an approved angle bank contains anything for this subject. */
+export function bankHasSubject(bank: string, key: SubjectKey): boolean {
+  return bank.includes(`[${SUBJECTS[key].tag}]`);
 }

@@ -40,7 +40,12 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   getAgent: vi.fn(async () => agent),
   countPendingDrafts: vi.fn(async () => 0),
   latestDraftBody: vi.fn(async () => null),
-  latestApprovedDraftBody: vi.fn(async () => "1. A default approved angle."),
+  // Covers every subject in the rota, because the Writer's prompt is built
+  // from whichever subject today falls on (src/subjects.ts) and a bank
+  // missing that subject now fails the task by design.
+  latestApprovedDraftBody: vi.fn(
+    async () => "1. [Attune] a\n\n2. [Denis] b\n\n3. [agentco] c",
+  ),
   insertDraft: vi.fn(async () => {}),
   insertBrief: vi.fn(async () => {}),
   finishTask: vi.fn(async () => {}),
@@ -138,14 +143,45 @@ describe("processOne", () => {
   });
 
   it("passes the approved angle bank into the daily_draft prompt", async () => {
+    // Tagged for every subject: which one today's prompt asks for depends on
+    // the real calendar day, and an untagged bank now fails the task.
     const d = deps({
-      latestApprovedDraftBody: vi.fn(async () => "1. Angle one\n2. Angle two"),
+      latestApprovedDraftBody: vi.fn(
+        async () => "1. [Attune] Angle one\n\n2. [Denis] Angle two\n\n3. [agentco] Angle three",
+      ),
     });
     expect(await processOne(d, false)).toBe("produced");
     expect(d.latestApprovedDraftBody).toHaveBeenCalledWith("weekly_angles");
     const call = (d.runAgent as any).mock.calls[0];
     expect(call[1]).toContain("Angle one");
     expect(call[1]).toContain("Angle two");
+    // The subject line the rota chose must reach the model too, or the
+    // Writer has a bank and no idea which part of it is for today.
+    expect(call[1]).toContain("Today's subject:");
+  });
+
+  it("fails a daily_draft without calling runAgent when the bank has nothing for today's subject", async () => {
+    // The real situation on 2026-09-12: the only [Denis] angle was edited out
+    // of an approved bank, leaving the next Denis day with nothing to draw
+    // from. Writing anyway would mean an Attune angle in Denis's personal
+    // voice, or an invented one — which the Writer's instructions forbid.
+    const d = deps({
+      latestApprovedDraftBody: vi.fn(async () => "1. [Attune] only attune here"),
+    });
+    const result = await processOne(d, false);
+    // Today may itself be an Attune day, in which case the bank is fine and
+    // the run proceeds — assert the pairing, not one fixed outcome.
+    const askedFor = (d.runAgent as any).mock.calls[0]?.[1] ?? "";
+    if (askedFor.includes("Today's subject: Attune")) {
+      expect(result).toBe("produced");
+    } else {
+      expect(result).toBe("failed");
+      expect(d.runAgent).not.toHaveBeenCalled();
+      expect(d.insertDraft).not.toHaveBeenCalled();
+      expect(d.logEvent).toHaveBeenCalledWith(
+        "no_angle_for_subject", expect.anything(), "a1", "t1",
+      );
+    }
   });
 
   it("fails a daily_draft task without calling runAgent when there is no approved angle bank", async () => {

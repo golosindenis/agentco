@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SUBJECTS, subjectFor, type SubjectKey } from "../src/subjects.js";
+import { SUBJECTS, subjectFor, bankHasSubject, type SubjectKey } from "../src/subjects.js";
 
 // 2026-09-14 is a Monday.
 const day = (offset: number) => new Date(2026, 8, 14 + offset, 7, 0, 0);
@@ -47,5 +47,20 @@ describe("subjectFor", () => {
       expect(s.label.length).toBeGreaterThan(0);
       expect(s.voice.length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe("bankHasSubject", () => {
+  const bank = "1. [Attune] something\n\n2. [agentco] something else";
+
+  it("finds a subject the bank covers", () => {
+    expect(bankHasSubject(bank, "attune")).toBe(true);
+    expect(bankHasSubject(bank, "agentco")).toBe(true);
+  });
+
+  it("reports a subject the bank has nothing for", () => {
+    // The exact situation after angle 5 was edited out on 2026-09-12: a bank
+    // with no [Denis] angle, on a day the rota says is Denis's.
+    expect(bankHasSubject(bank, "denis")).toBe(false);
   });
 });

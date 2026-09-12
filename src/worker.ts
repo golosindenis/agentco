@@ -4,7 +4,7 @@ import { TASK_PROMPTS } from "./prompts.js";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
-import { SUBJECTS, subjectFor } from "./subjects.js";
+import { SUBJECTS, subjectFor, bankHasSubject } from "./subjects.js";
 import type { BriefFacts } from "./db.js";
 
 export type WorkerOutcome =
@@ -122,7 +122,18 @@ export async function processOne(
       // weekday in src/subjects.ts rather than left to the Writer, which has
       // no memory between runs and would otherwise starve whichever subject
       // the angle bank happened to list last.
-      const subject = SUBJECTS[subjectFor(new Date())];
+      const subjectKey = subjectFor(new Date());
+      const subject = SUBJECTS[subjectKey];
+      // An approved bank with nothing for today's subject is the same class
+      // of problem as no bank at all: the Writer would either post an Attune
+      // angle in Denis's personal voice or invent an angle, which its
+      // instructions forbid. Surface it instead of papering over it.
+      if (!bankHasSubject(angleBank, subjectKey)) {
+        const reason = `approved angle bank has no [${subject.tag}] angle for today's subject`;
+        await deps.logEvent("no_angle_for_subject", { reason, subject: subjectKey }, agent.id, task.id);
+        await deps.finishTask(task.id, "failed", reason);
+        return "failed";
+      }
       taskPrompt =
         `${taskPrompt}\n\n## Today's subject: ${subject.label}\n\n${subject.voice}` +
         `\n\nChoose an angle from the bank below that fits this subject.` +
