@@ -347,3 +347,10 @@ stray project has no domain and no traffic and should be deleted.
 
 Also still cosmetic: the email Subject still reads "Your sign-in link" while
 the body is a code.
+
+**Confirmed working from Denis's phone on 2026-09-12.** The apparatus is
+finished: the company runs at 07:00, drafts land in Supabase, and he can review
+them from his pocket. Everything from here is a question about habit, not code
+— the agreed measurement is drafts reviewed within a day of being produced,
+sustained over two weeks. If that stays near zero now, the interface was never
+the problem and more agents would be the wrong response.
