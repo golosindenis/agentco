@@ -18,9 +18,12 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (a431c02) — **the site is up.** The Vercel project's Framework Preset
+  was "Other", so the Next builder never ran and the deploy was one lone middleware
+  lambda. `vercel.json` now declares `"framework": "nextjs"`. SSO protection off.
 - 2026-09-08 (bb41511, bf43059, d0d3b1b) — Vercel deploy attempts: root-dependency
-  install, static `NEXT_PUBLIC_*` reads, `web/` declared ESM. **Site still returns
-  MIDDLEWARE_INVOCATION_FAILED; unfinished.**
+  install, static `NEXT_PUBLIC_*` reads, `web/` declared ESM. Each correct, none of
+  them the cause.
 - 2026-09-08 (a959693) — engine: `recordVerdict` now converges a retried verdict on
   the outcome actually recorded, instead of flipping the draft's status and
   discarding the decline reason.
@@ -28,6 +31,17 @@ instructions so the correction sticks. **Nothing publishes.**
   every one, 158 tests. Replaces the local `dashboard/`.
 
 ## Hard-Won Rules
+
+- **The Vercel project's Framework Preset must stay Next.js.** It was created as
+  "Other", which silently skips the Next builder entirely: the deploy succeeds,
+  reports Ready, and contains nothing but a standalone `middleware` lambda. Every
+  route 404s and the middleware crashes with MIDDLEWARE_INVOCATION_FAILED. Three
+  correct fixes were shipped against that symptom before anyone looked at
+  `vercel inspect`, whose build list names the problem in one line. `vercel.json`
+  now pins the preset so a dashboard setting cannot decide this again.
+- **Deployment Protection (SSO) hides every runtime failure.** It 302s requests at
+  the edge before the function runs, so nothing is invoked and the runtime log
+  stays empty forever. Turn it off before debugging anything in production.
 
 - **`npm run seed` is not idempotent.** It upserts `instructions` wholesale and
   will erase every rule the ladder has learned from Denis's declines. Run it

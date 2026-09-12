@@ -217,3 +217,69 @@ Two settings also still unchanged, both required before a phone login works:
   `vercel.com/sso-api` while a logged-in browser passes. It will block the
   phone test and the magic-link email. Recommended off for Production, since
   the app's own single-address gate is the real control.
+
+## 2026-09-12 — the deploy, solved
+
+The three fixes of 2026-09-08 were each a real bug and none of them was *the*
+bug. The cause was one project setting nobody could see from the code.
+
+First, SSO had to go. Deployment Protection redirects at the edge *before* the
+function runs, so no invocation ever happened, no runtime log was ever written,
+and `vercel logs` tailed an empty stream. The advice in the last entry — "read
+the runtime log, it has named the cause exactly once" — was unfollowable for
+that reason. `vercel project protection disable agentco --sso`.
+
+With it off, production answered honestly for the first time: `/login` →
+**404 NOT_FOUND**, `/` and `/org` → **500 MIDDLEWARE_INVOCATION_FAILED**. A
+404 on a route that exists locally is not an auth problem or a bundling
+problem. It means the route was never deployed.
+
+`vercel inspect` on that deployment, in one line:
+
+    Builds
+      ┌ .        [0ms]
+      └── λ middleware (338.39KB)
+
+The entire production deployment was a single middleware lambda. No pages, no
+routes, no static assets. `vercel project inspect` explained why:
+
+    Framework Preset    Other
+    Build Command       `npm run vercel-build` or `npm run build`
+    Output Directory    `public` if it exists, or `.`
+
+The project was created as a generic "Other" project. Vercel never ran the Next
+builder at all — it detected `middleware.ts`, compiled that one file as a
+standalone edge function, and shipped it. Which is exactly the observed
+behaviour: every route 404s because no route was built, and the middleware
+crashes because it was compiled outside the pipeline that gives it its runtime.
+
+Two things are worth keeping from how this went wrong. The locally-pulled
+`project.json` reported `framework: 'nextjs'` while the dashboard said "Other" —
+the pulled settings lie, and the dashboard is what builds. And the symptom
+(MIDDLEWARE_INVOCATION_FAILED) pointed at the middleware so insistently that
+three sessions of correct middleware fixes went out before anyone asked the
+cheaper question: what is actually *in* the deployment?
+
+Fix: `"framework": "nextjs"` in `web/vercel.json`, so the preset lives in the
+repo and a dashboard setting cannot decide it again. Verified on a preview
+before merging — 25 output items instead of 1, `/login` 200 rendering its email
+form, `/`, `/org`, `/activity` 307 to `/login`, `/manifest.webmanifest` 200
+signed out so the PWA can still boot, and `/loginish` correctly gated, which
+re-proves the anchored matcher. Merged (a431c02); production matches.
+
+A CLI `vercel deploy` still fails here, and that is expected rather than
+broken: it uploads only the root directory (`web`), so the
+`npm install --prefix ..` in the install command has no `..`. Git-integration
+builds clone the whole repo and work. Deploy through git.
+
+### Still open before a phone login works
+
+Unchanged from the last entry, both on Supabase, neither reachable from code:
+
+- **Site URL still points at localhost.** `signInWithOtp` passes no
+  `emailRedirectTo`, so the magic link follows it and a phone tap lands on a
+  dead localhost. Authentication > URL Configuration; set it to the production
+  URL and add `<url>/auth/callback` as a redirect.
+- **Signup is still open** (`disable_signup: false`). The app's single-address
+  allowlist is the only control; a second account created directly against the
+  Supabase auth API is refused by the app but still exists.
