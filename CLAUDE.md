@@ -18,6 +18,10 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-12 (af34694, bb02d13, e74a227) — **login works from his phone.** Custom
+  SMTP via Resend was the unlock: Supabase locks email templates on the built-in
+  mailer, so `{{ .Token }}` could not be added until SMTP existed. Signup now
+  disabled; `shouldCreateUser` flipped to false.
 - 2026-09-12 (a431c02) — **the site is up.** The Vercel project's Framework Preset
   was "Other", so the Next builder never ran and the deploy was one lone middleware
   lambda. `vercel.json` now declares `"framework": "nextjs"`. SSO protection off.
@@ -39,6 +43,10 @@ instructions so the correction sticks. **Nothing publishes.**
   correct fixes were shipped against that symptom before anyone looked at
   `vercel inspect`, whose build list names the problem in one line. `vercel.json`
   now pins the preset so a dashboard setting cannot decide this again.
+- **Signup is disabled on the Supabase project; keep `shouldCreateUser: false`.**
+  Flipping it back cannot create anyone — it only swaps the allowlist's own
+  "That address cannot sign in." for Supabase's "Signups not allowed for this
+  instance", which tells a stranger how the project is configured.
 - **The Magic Link email template must contain `{{ .Token }}`.** Login is a typed
   six-digit code — `signInWithOtp` then `verifyOtp`, never a redirect — but
   Supabase's default template ships only `{{ .ConfirmationURL }}`, so the email
