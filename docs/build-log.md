@@ -302,3 +302,48 @@ phone mail opens somewhere without that cookie and the exchange cannot complete.
 `web/app/auth/callback/route.ts` is a genuine fallback, but only for clicking
 the link in the same browser that asked. The typed code is the thing that works
 across devices, which is the whole point of a phone-first app.
+
+## 2026-09-12 (later) — login works end to end
+
+Custom SMTP was the missing piece, and not for the reason the earlier entry
+assumed. Supabase **locks the email templates on the built-in mailer** — the
+Magic Link page shows "Set up custom SMTP to edit their subject and body" and
+Save stays greyed out. So `{{ .Token }}` could not be added at all until SMTP
+existed. That is the real dependency chain: no SMTP → no template edit → no
+code in the email → the six-digit form has nothing to accept.
+
+Resend, on the existing `dgfitnessandlifestyle` account. Note the trap avoided:
+Resend's `onboarding@resend.dev` test sender only delivers to the *Resend
+account owner's* address, which here is not the address that signs in to
+agentco. Sending therefore runs through the one verified domain on that
+account, `inbound.accountguard.app` — a subdomain belonging to another project,
+so `noreply@inbound.accountguard.app` is the From until agentco has its own
+domain. SMTP is `smtp.resend.com:465`, user `resend`, password a Resend key
+named `agentco-supabase` scoped to Sending access.
+
+Verified end to end on production, signed in as the real user:
+
+- code requested → Supabase 200 → email delivered with six digits
+- `verifyOtp` → 200, session for `golosindenis@gmail.com`, refresh token present
+- that session's cookie replayed against production: `/org` and `/activity`
+  **200**, where signed out they 307 to `/login`. The middleware gate works
+  with a real session, which had never once been proven before today.
+
+### Two things left behind
+
+**An intermittent 500 on `/`.** One request failed with
+`Error: lastEventTimeByAgent failed: …` (the runtime log truncates the rest).
+That is `src/db.ts:349` rethrowing a Supabase query error, so the failure is on
+the database side, not in the page. Ten consecutive requests afterwards all
+returned 200, and the same page against the same production database renders
+fine locally. Not diagnosed — the full error text was never captured. If it
+recurs, the message is the thing to grab.
+
+**A stray Vercel project named `web`.** Created accidentally by a
+`vercel deploy` run from the repo root during this session; it also hijacked
+`.vercel/project.json` so `vercel env ls` silently reported the wrong project's
+(empty) environment. Relinked with `vercel link --yes --project agentco`. The
+stray project has no domain and no traffic and should be deleted.
+
+Also still cosmetic: the email Subject still reads "Your sign-in link" while
+the body is a code.
