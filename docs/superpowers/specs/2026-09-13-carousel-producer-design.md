@@ -49,7 +49,10 @@ simplified Look picker without per-slide editing.
 4. The draft shows **Carousel ready – Open in studio**, linking to
    `/carousels/<carousel id>` inside agentco.
 5. On the Mac that page is the real editor, built into agentco, with the deck
-   loaded. Denis picks Look, font and background and edits slides as today.
+   loaded. Denis picks Look, font and background in the editor. The editor
+   has no text editing of its own, so wording is changed in the studio's
+   Edit text panel, which saves the slides back to the deck after the same
+   parseDeck checks (corrected 2026-09-13).
 6. **Send** exports PNGs in the browser, uploads them to the private
    `carousels` Storage bucket, records the Look and settings, and marks the
    carousel `sent`.

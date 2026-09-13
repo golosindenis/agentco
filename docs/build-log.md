@@ -675,7 +675,13 @@ than quotes the post.
   loads the newest sent carousel separately and always shows its strip and
   Download all, with a newer deck's state above it. Download all (f620bb8)
   saves each slide via Storage signed URLs with the download option.
-- **Studio edits are not saved back to the deck**; reopening shows the
-  Producer's text again.
+- ~~**Studio edits are not saved back to the deck**~~ fixed in ab0430c, but
+  the real cause was worse than the symptom: the editor never had text
+  editing (no inputs, nothing writes SLIDES), so the spec's "edits slides as
+  today" was never true and I had told Denis to shorten the hook "in the
+  editor". The studio now has an Edit text panel (text, subtext, italic
+  phrases). Save runs parseDeck, refuses added/removed/retyped slides,
+  stores the slides, and redraws the editor in place so the chosen Look
+  survives. Send is blocked while text is unsaved.
 - **Login returns to the dashboard**, not the page that sent you there.
 - **No way to decline a deck** or teach the Producer from the studio.
