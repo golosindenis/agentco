@@ -29,4 +29,6 @@ export const TASK_PROMPTS: Record<TaskKind, string> = {
     "certification, a stockist or a result the brand has not got. Keep it under " +
     "120 words. Output only the message, with no subject line, preamble or " +
     "commentary.",
+  carousel:
+    "Turn the approved post below into one carousel deck. Output only the JSON array of slides.",
 };

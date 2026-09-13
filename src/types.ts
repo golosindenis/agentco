@@ -7,7 +7,7 @@ export type AgentState = {
   recent: Verdict[];
 };
 
-export type TaskKind = "weekly_angles" | "daily_draft" | "brief" | "wholesale_outreach";
+export type TaskKind = "weekly_angles" | "daily_draft" | "brief" | "wholesale_outreach" | "carousel";
 export type TaskState = "queued" | "running" | "done" | "failed";
 
 /** Task kinds whose approved drafts are things Denis actually publishes.
@@ -24,6 +24,8 @@ export type TaskRow = {
   state: TaskState;
   due_at: string;
   error: string | null;
+  /** Set only on `carousel` tasks: the approved draft the deck is made from. */
+  source_draft_id?: string | null;
 };
 
 export type AgentRow = {
@@ -48,4 +50,18 @@ export type DraftRow = {
   body: string;
   status: "pending" | "approved" | "declined";
   created_at: string;
+};
+
+export type CarouselRow = {
+  id: string;
+  task_id: string | null;
+  source_draft_id: string;
+  slides: unknown[];
+  watermark: string;
+  status: "deck_ready" | "sent";
+  look: string | null;
+  settings: Record<string, unknown> | null;
+  image_paths: string[] | null;
+  created_at: string;
+  sent_at: string | null;
 };
