@@ -711,6 +711,15 @@ export async function getCarousel(id: string): Promise<CarouselRow | null> {
   return (data as CarouselRow | null) ?? null;
 }
 
+/**
+ * Replaces a carousel's slide text. Status and images are left as they are:
+ * a sent carousel keeps showing its last images until Send replaces them.
+ */
+export async function updateCarouselSlides(id: string, slides: unknown[]): Promise<void> {
+  const { error } = await supabase.from("carousels").update({ slides }).eq("id", id);
+  if (error) throw new Error(`updateCarouselSlides(${id}): ${error.message}`);
+}
+
 /** One signed upload URL per path. Upsert, so retrying a failed Send overwrites. */
 export async function createSlideUploadUrls(paths: string[]): Promise<{ path: string; signedUrl: string }[]> {
   const out: { path: string; signedUrl: string }[] = [];

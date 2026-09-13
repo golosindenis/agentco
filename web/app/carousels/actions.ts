@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { carouselObjectPaths, createSlideUploadUrls, getCarousel, markCarouselSent } from "../../../src/db.js";
+import { carouselObjectPaths, createSlideUploadUrls, getCarousel, markCarouselSent, updateCarouselSlides } from "../../../src/db.js";
 import { expectedPaths, missingSlides } from "../../../src/carouselFiles.js";
+import { parseDeck } from "../../../src/deck.js";
+import { sameShape } from "../../../src/slideEdit.js";
 import type { CarouselRow } from "../../../src/types.js";
 import { currentUser } from "../lib/supabaseServer";
 
@@ -23,6 +25,31 @@ async function authorizedCarousel(carouselId: string, slideTypes: string[]): Pro
     return { ok: false, error: `The editor has ${slideTypes.length} slides but the deck has ${carousel.slides.length}. Reload the studio.` };
   }
   return { ok: true, carousel };
+}
+
+/**
+ * Saves slide text edited in the studio. The edit may change wording only:
+ * the same slides in the same order with the same types, so Send and the
+ * editor stay in step. The result must pass the same parseDeck rules the
+ * Producer's output does, so a hand edit cannot save an overflowing hook or
+ * a dash either.
+ */
+export async function saveCarouselSlides(carouselId: string, slides: Record<string, unknown>[]): Promise<StudioResult> {
+  try {
+    if (!(await currentUser())) return { ok: false, error: "Not authorized." };
+    const carousel = await getCarousel(carouselId);
+    if (!carousel) return { ok: false, error: "Carousel not found." };
+    if (!sameShape(carousel.slides as { type?: unknown }[], slides)) {
+      return { ok: false, error: "Slides were added, removed or retyped. Reload the studio." };
+    }
+    const check = parseDeck(JSON.stringify(slides));
+    if (!check.ok) return { ok: false, error: `Not saved: ${check.reason}.` };
+    await updateCarouselSlides(carouselId, check.slides);
+    revalidatePath(`/carousels/${carouselId}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function startCarouselUpload(carouselId: string, slideTypes: string[]): Promise<UploadPlan> {
