@@ -671,8 +671,10 @@ than quotes the post.
 
 ### Still open
 
-- **A newer deck hides a sent carousel** on the draft page, which shows only
-  the newest carousel.
+- ~~**A newer deck hides a sent carousel**~~ fixed in e3266ea: the draft page
+  loads the newest sent carousel separately and always shows its strip and
+  Download all, with a newer deck's state above it. Download all (f620bb8)
+  saves each slide via Storage signed URLs with the download option.
 - **Studio edits are not saved back to the deck**; reopening shows the
   Producer's text again.
 - **Login returns to the dashboard**, not the page that sent you there.
