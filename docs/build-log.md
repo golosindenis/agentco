@@ -591,3 +591,48 @@ rendered, and deleting it. Draft counts were verified back to 2 declined /
 - **The ladder advanced on a bank Denis did not fully endorse** on the first
   approve of the night. Whether approve-with-reservations needs its own verdict
   is undecided — though per-angle verdicts now make that case rarer.
+
+## 2026-09-13 — the daily run that wasn't, and the Carousel Producer (plan 1)
+
+**The 7:00 run had silently missed Sep 9–13.** `launchctl print` showed
+`runs = 0`: the Mac was powered off at 7:00 each of those mornings, and
+`StartCalendarInterval` only catches up after sleep, never after power-off.
+Fixed with `RunAtLoad` (85789eb); `schedule.ts` already skips anything queued
+today, so a second same-day run is a no-op (verified by kickstarting twice).
+
+**Carousel Producer, agentco half.** Denis picked the Producer first of the
+three deferred capabilities. Spec:
+`docs/superpowers/specs/2026-09-13-carousel-producer-design.md`; plan:
+`docs/superpowers/plans/2026-09-13-carousel-producer-agentco.md`. Shipped: a
+`carousel` task kind with `tasks.source_draft_id`, a `producer` agent row,
+the `carousels` table (never `drafts`, no backpressure, no ladder),
+`parseDeck` enforcing the slide rules, watermark by subject, and a Make
+carousel control on approved daily posts. 223 tests.
+
+**Production broke for a few minutes, from the migration.** `0003` first made
+`source_draft_id` a foreign key to `drafts`. With `drafts.task_id → tasks`
+already there, PostgREST found two relationships and refused every
+`drafts … tasks(kind)` embed: the draft page, Ready to post, and the Writer's
+angle bank query. Only the live-DB tests caught it. The FK was dropped on
+production (column kept; the worker checks the source draft exists) and the
+migration file corrected in 9145e38.
+
+**The button was unreachable on first deploy.** The panel lived on
+`/drafts/[id]`, which the app only links to from pending drafts, so no
+approved post could get to it and Denis saw "no carousel word anywhere".
+Ready to post now links daily posts there (93c6dc6). A post already marked
+posted still has no way back in except its direct URL.
+
+**Proven on production.** Denis queued from the draft page; `npm run worker`
+produced a deck for draft f541f99d: `deck_ready`, 9 slides, hook first, cta
+last, no dashes, `@becoming_denis`, 8s, $0.24 list. Verdict on the copy: the
+wording is his, split one sentence per slide, but no slide has `subtext`, so
+it loses the statement-plus-supporting-line rhythm of his hand-made decks,
+and slide 7 is long. Validation cannot catch that; a decline path can.
+
+### Still open
+
+- **Plan 2:** hosted editor in the carousel fork, sign-in, Send to agentco,
+  images on the phone. The draft page says "Editor not hosted yet" until then.
+- **No way to decline a deck** or teach the Producer (e.g. "use subtext").
+- **Posted drafts cannot reach Make carousel** from the app.
