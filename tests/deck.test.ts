@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseDeck } from "../src/deck.js";
 
-const hook = { type: "hook", text: "Every fitness plan gives a woman two choices on a bad day", italics: ["two choices"], subtext: "Neither of them is a good one." };
+const hook = { type: "hook", text: "Every fitness plan gives women two bad choices", italics: ["two bad choices"], subtext: "Neither of them is a good one." };
 const body = (text: string) => ({ type: "body", text, subtext: "A supporting sentence." });
 const cta = { type: "cta", text: "That is the whole reason I am building Attune.", italics: ["building Attune"] };
 const deck = (slides: unknown[]) => JSON.stringify(slides);
@@ -16,6 +16,16 @@ describe("parseDeck", () => {
 
   it("accepts a deck wrapped in a json code fence", () => {
     expect(parseDeck("```json\n" + deck(valid) + "\n```").ok).toBe(true);
+  });
+
+  it("rejects a hook longer than 10 words, which overflows the slide", () => {
+    const long = { ...hook, text: "I built this after watching the women in my life get answers", italics: ["answers"] };
+    expect(parseDeck(deck([long, ...valid.slice(1)]))).toEqual({ ok: false, reason: "slide 1 hook has 12 words; max 10" });
+  });
+
+  it("accepts a hook of exactly 10 words", () => {
+    const ten = { ...hook, text: "Three doctors gave my wife three different shrugs this year", italics: ["three different shrugs"] };
+    expect(parseDeck(deck([ten, ...valid.slice(1)])).ok).toBe(true);
   });
 
   it("rejects non JSON", () => {

@@ -21,6 +21,8 @@ const ALLOWED_FIELDS = new Set([
 
 const DASH = /[-–—]/;
 
+export const MAX_HOOK_WORDS = 10;
+
 function stripFence(body: string): string {
   const m = body.trim().match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
   return m ? m[1]! : body.trim();
@@ -52,6 +54,12 @@ export function parseDeck(body: string): DeckResult {
     if (i === 0 && type !== "hook") return { ok: false, reason: `${at} must be a hook` };
     if (i === n - 1 && type !== "cta") return { ok: false, reason: `${at} must be a cta` };
     if (!ALLOWED_TYPES.has(type)) return { ok: false, reason: `${at} has disallowed type ${type}` };
+    if (type === "hook") {
+      // A hook is set at display size; past 10 words it overflows the slide
+      // (15 words ran off the vista look on 2026-09-13) and stops no scroll.
+      const words = typeof s.text === "string" ? s.text.trim().split(/\s+/).filter(Boolean).length : 0;
+      if (words > MAX_HOOK_WORDS) return { ok: false, reason: `${at} hook has ${words} words; max ${MAX_HOOK_WORDS}` };
+    }
     for (const key of Object.keys(s)) {
       if (!ALLOWED_FIELDS.has(key)) return { ok: false, reason: `${at} has unknown field ${key}` };
     }
