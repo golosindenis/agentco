@@ -19,6 +19,13 @@
     <integer>0</integer>
   </dict>
 
+  <!-- StartCalendarInterval only catches up after sleep, never after the Mac
+       was powered off at 7:00 — which is how Sep 9-13 2026 were all missed.
+       RunAtLoad runs it again at boot/login; schedule.ts skips anything
+       already queued today, so a second run the same day is a no-op. -->
+  <key>RunAtLoad</key>
+  <true/>
+
   <key>StandardOutPath</key>
   <string>/Users/denisgolosin/agentco/logs/launchd.out.log</string>
 
