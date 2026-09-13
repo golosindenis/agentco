@@ -24,13 +24,20 @@ Two constraints shaped everything:
 |---|---|
 | What triggers a carousel | A "Make carousel" button on an approved draft |
 | Who picks the design | Denis, in the real editor, not pre-rendered previews |
-| How | Host the full editor (option B) |
+| How | The full editor, built into agentco (revised 2026-09-13, see below) |
 | Where he opens it | Mac or laptop, so no mobile layout work |
-| How images reach the phone | "Send to agentco" uploads them; the draft shows them on the phone |
+| How images reach the phone | "Send" uploads them; the draft shows them on the phone |
 
 Rejected: rendering the cover in every Look (A), rendering every Look in full
 (C), a phone editor, a secret token in the link (anyone holding the link
 could open private decks).
+
+**Revision, 2026-09-13, after plan 1 shipped.** The first version hosted the
+editor as its own Vercel project with its own sign-in. Denis rejected that:
+the builder has to be integrated into the platform and the design picked
+inside it. Also rejected: an iframe of a separately hosted editor (two
+deploys, cross-domain sign-in inside a frame is fragile in Safari) and a
+simplified Look picker without per-slide editing.
 
 ## Flow
 
@@ -39,14 +46,15 @@ could open private decks).
 2. The Mac worker runs the Producer, which writes a deck as JSON in the
    builder's `SlideData` shape. `parseDeck` validates it.
 3. The deck is saved to `carousels` with status `deck_ready`.
-4. The draft shows **Carousel ready – open editor**, linking to
-   `<editor host>/c/<carousel id>`.
-5. On the Mac the link opens the real editor with the deck loaded. Denis
-   picks Look, font and background and edits slides as today.
-6. **Send to agentco** exports PNGs in the browser, uploads them to the
-   private `carousels` Storage bucket, records the Look and settings, and
-   marks the carousel `sent`.
-7. On the phone the draft shows a swipeable carousel with save to camera roll.
+4. The draft shows **Carousel ready – Open in studio**, linking to
+   `/carousels/<carousel id>` inside agentco.
+5. On the Mac that page is the real editor, built into agentco, with the deck
+   loaded. Denis picks Look, font and background and edits slides as today.
+6. **Send** exports PNGs in the browser, uploads them to the private
+   `carousels` Storage bucket, records the Look and settings, and marks the
+   carousel `sent`.
+7. On the phone the draft shows the images in a horizontal strip; a long
+   press saves one to the camera roll.
 
 Out of scope: hosted MP4 export, approve or decline on a carousel, any
 publishing.
@@ -120,50 +128,69 @@ Chosen by the source draft's subject and stored on the row: `attune` and
 - **Make carousel** server action on approved `daily_draft`s, through
   `currentUser()` and the allowlist.
 - Draft states shown: queued ("Waiting for your Mac" while the task is
-  `queued`), failed (reason and retry), `deck_ready` (editor link), `sent`
-  (swipeable images via short-lived signed URLs, save to camera roll).
+  `queued`), failed (reason and retry), `deck_ready` (Open in studio, linking
+  to `/carousels/<id>`), `sent` (a horizontal strip of the images via
+  short-lived signed URLs; long press saves to the camera roll).
 
-## Builder changes (fork)
+## Studio inside agentco (plan 2)
 
-Commit on `denis-customizations`, push to `denis` only, never `origin`.
+### Where the code lives
 
-- `CarouselApp.tsx` imports `SLIDES`, `WATERMARK` and the `DEFAULT_*`
-  constants at module level and derives `CANVAS_W`/`CANVAS_H` there. These
-  become a `deck` prop (slides, watermark, defaults). Rendering, Looks and
-  export code are otherwise untouched.
-- `page.tsx` with no id passes the deck from `slides.ts`, so local use is
-  unchanged. Route `/c/[id]` fetches `GET /api/deck/<id>` and passes that.
-  A missing id shows "Carousel not found"; it never falls back to the local
-  deck.
-- `HOSTED=1` hides the MP4 control and makes `/api/frames` and `/api/encode`
-  return 404.
-- A **Send to agentco** control, shown only when a carousel id is loaded.
+- The fork (`~/.claude/skills/threads-carousel`, branch
+  `denis-customizations`, push to `denis` only, never `origin`) stays the
+  source of the editor.
+- `npm run sync-studio` (agentco) copies the fork's `src/app/CarouselApp.tsx`
+  to `web/app/carousels/studio/app/CarouselApp.tsx` and `src/lib/*.ts` to
+  `web/app/carousels/studio/lib/`, prepends a generated-file banner and
+  `// @ts-nocheck`, and rewrites the one import from `../slides` to `../deck`.
+  The vendored files are committed (Vercel builds agentco's repo only).
+- A drift test compares the vendored files with a fresh transform of the
+  fork and fails when they differ. It skips when the fork is not on disk.
 
-### Hosting
+### How the deck gets in
 
-Separate Vercel project (the builder is Next 15, agentco web is Next 16):
-repo `golosindenis/threads-carousel-denis`, branch `denis-customizations`,
-root `template`, Framework Preset explicitly **Next.js** (the agentco
-four-day deploy failure was this setting). Fonts come from `next/font/google`
-and are bundled at build, so exports do not depend on Google at runtime.
+`web/app/carousels/studio/deck.ts` exports `SLIDES` and `WATERMARK` as `let`
+bindings plus the `DEFAULT_*` constants, and a `setDeck(slides, watermark)`
+function. ES module imports are live bindings, so the studio page calls
+`setDeck` before it dynamically imports the editor, and the editor renders
+the carousel's deck with no logic change.
+
+### Two small fork changes
+
+- A `useEffect` in `CarouselPage` publishes `window.__carouselStudio` with
+  the slide count and types, `captureSlide`, and the current design settings
+  (`lookId`, `fontId`, `surfaceId`, `accentId`, `purposeId`, `formatId`, the
+  effective background). Nothing reads it when the builder runs locally.
+- The MP4 button renders only when `NEXT_PUBLIC_HIDE_MP4` is not `"1"`.
+  The sync script replaces that expression with `"1"` in agentco's copy, so
+  no Vercel variable is needed; the ffmpeg routes are not vendored.
+
+### Styling and fonts
+
+The editor styles itself inline (198 inline style blocks, 24 class names,
+none of them Tailwind utilities), so Tailwind is not brought in. The
+builder's own rules (toolbar, slide card and Aurora motion classes) go into
+`web/app/carousels/studio/studio.css`, without the Tailwind import or the
+`body` reset. `web/app/carousels/layout.tsx` loads the builder's 14
+`next/font/google` faces and applies their CSS variables to a wrapper, so
+they load only on carousel pages.
 
 ### Login
 
-Its own sign-in page, because agentco's session cookie cannot cross domains:
-same Supabase project, same six-digit email code, same allowlist check
-against Denis's address, enforced in middleware and in every API route.
+None of its own: `/carousels/[id]` is an agentco page behind the existing
+middleware and `currentUser()` allowlist.
 
-### API routes (server only, service role key never sent to the browser)
+### Server actions (`web/app/carousels/actions.ts`)
 
-- `GET /api/deck/<id>`: allowlisted session required; returns slides,
-  watermark and status.
-- `POST /api/deck/<id>/send` with `{ slideCount }`: returns one signed upload
-  URL per slide. Vercel's 4.5 MB request body limit rules out posting 7
-  PNGs at 2160×2700 through the function.
-- `POST /api/deck/<id>/complete` with `{ look, settings }`: verifies every
-  expected object exists in the bucket, then writes `image_paths`, `look`,
-  `settings`, `status sent`, `sent_at`. If any object is missing it refuses
-  and names the slide.
+- `startCarouselUpload(carouselId, slideTypes)`: returns one signed upload
+  URL per slide (upsert on, so a retry overwrites). Vercel's 4.5 MB request
+  body limit rules out posting the PNGs through the function.
+- `completeCarousel(carouselId, slideTypes, settings)`: lists the carousel's
+  objects in the bucket; if any expected slide is missing it refuses and
+  names it, otherwise writes `image_paths`, `look`, `settings`, `status
+  sent`, `sent_at`.
+
+Both call `requireAuthorizedUser()` first.
 
 ## Errors
 
@@ -172,8 +199,8 @@ against Denis's address, enforced in middleware and in every API route.
 | Source draft missing or not approved | Task failed, reason logged, draft shows failure and retry |
 | Output not a valid deck | `output_rejected` with the broken rule, nothing saved |
 | Mac off when tapped | Task stays queued, draft shows "Waiting for your Mac", run-at-load picks it up |
-| Signed out or not allowlisted | Sign-in page or "not allowed"; the deck is never sent |
-| Unknown carousel id | "Carousel not found", no local fallback |
+| Signed out or not allowlisted | agentco's login redirect; the deck is never rendered |
+| Unknown carousel id | 404, no local fallback |
 | An upload fails | Stays `deck_ready`, editor names the slide, Send retryable, reuploads overwrite |
 
 ## Testing
@@ -186,34 +213,37 @@ agentco, Vitest, tests written first:
   not `drafts`; streak unchanged.
 - Watermark selection per subject.
 
-Builder (no test tooling exists):
+Studio (plan 2):
 
-- `tsc --noEmit` and `next build` pass locally and on Vercel.
-- Regression: export an existing local deck before and after the prop change;
-  the PNGs must match pixel for pixel.
-- Vitest added to the builder as a dev dependency, scoped to the three API
-  routes only: allowlist refusal, not found, and `complete` refusing while
-  any image is missing. The editor itself stays untested beyond the
-  regression export.
+- `transformEditor`, `transformLib`, `transformCss`: one test per rewrite,
+  and a refusal when the fork no longer has the import or guard they rely on.
+- Drift test: vendored files equal a fresh transform of the fork (skips when
+  the fork is not on disk).
+- `slidePath`, `expectedPaths`, `missingSlides`: pure, tested.
+- `carouselView` now links to `/carousels/<id>`.
+- The fork's own `next build` passes after its two changes; agentco's web
+  typecheck and `next build` pass with the vendored editor.
 
 ## Proof of done, on production
 
 1. Tap Make carousel on a real approved draft, on the phone.
-2. The worker produces a valid deck and the draft shows the editor link.
-3. Open it on the Mac and sign in with the six-digit code.
-4. Pick a Look never exported before (e.g. `vista`), export, and inspect at
+2. The worker produces a valid deck and the draft shows Open in studio.
+3. Open it on the Mac inside agentco; the real editor shows the deck.
+4. Pick a Look never exported before (e.g. `vista`) and inspect the slides at
    full resolution, not thumbnails.
-5. Send to agentco; on the phone the carousel appears, swipes, and saves to
-   the camera roll.
-6. A hosted PNG and a local export of the same deck and Look look identical,
-   fonts included.
+5. Send; the carousel row is `sent` with one image path per slide, and on
+   the phone the draft shows the strip and a long press saves an image.
+6. An image from agentco and a local fork export of the same deck and Look
+   look identical, fonts included.
 
 Not done until step 6 passes and Denis has seen it on his phone.
 
 ## Build order
 
-1. agentco migration, `parseDeck`, Producer row and worker path.
-2. Builder deck-prop change with the regression export.
-3. Hosting, login, deck API.
-4. Send and complete routes, and the phone view in agentco.
-5. End-to-end proof.
+1. agentco migration, `parseDeck`, Producer row and worker path. (Plan 1, shipped.)
+2. Fork: studio bridge and MP4 guard.
+3. agentco: sync script, vendored editor, deck module, drift test.
+4. Storage bucket, upload and complete actions.
+5. `/carousels/[id]` studio page, fonts and scoped CSS.
+6. Draft page: Open in studio and the sent image strip.
+7. End-to-end proof.
