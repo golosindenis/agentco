@@ -693,3 +693,45 @@ export async function carouselStatusForDraft(draftId: string): Promise<{
     carousel: (c.data?.[0] as CarouselRow | undefined) ?? null,
   };
 }
+
+const CAROUSEL_BUCKET = "carousels";
+
+export async function getCarousel(id: string): Promise<CarouselRow | null> {
+  const { data, error } = await supabase.from("carousels").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(`getCarousel(${id}): ${error.message}`);
+  return (data as CarouselRow | null) ?? null;
+}
+
+/** One signed upload URL per path. Upsert, so retrying a failed Send overwrites. */
+export async function createSlideUploadUrls(paths: string[]): Promise<{ path: string; signedUrl: string }[]> {
+  const out: { path: string; signedUrl: string }[] = [];
+  for (const p of paths) {
+    const { data, error } = await supabase.storage.from(CAROUSEL_BUCKET).createSignedUploadUrl(p, { upsert: true });
+    if (error || !data) throw new Error(`createSignedUploadUrl(${p}): ${error?.message ?? "no data"}`);
+    out.push({ path: p, signedUrl: data.signedUrl });
+  }
+  return out;
+}
+
+export async function carouselObjectPaths(carouselId: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(CAROUSEL_BUCKET).list(carouselId, { limit: 100 });
+  if (error) throw new Error(`list carousel ${carouselId}: ${error.message}`);
+  return (data ?? []).map((o) => `${carouselId}/${o.name}`);
+}
+
+export async function markCarouselSent(
+  id: string, paths: string[], settings: Record<string, string>,
+): Promise<void> {
+  const { error } = await supabase.from("carousels").update({
+    status: "sent", image_paths: paths, look: settings.lookId ?? null, settings, sent_at: new Date().toISOString(),
+  }).eq("id", id);
+  if (error) throw new Error(`markCarouselSent(${id}): ${error.message}`);
+}
+
+/** Viewable URLs for the phone, valid for an hour. */
+export async function signedImageUrls(paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const { data, error } = await supabase.storage.from(CAROUSEL_BUCKET).createSignedUrls(paths, 3600);
+  if (error) throw new Error(`signedImageUrls: ${error.message}`);
+  return (data ?? []).map((d) => d.signedUrl ?? "").filter(Boolean);
+}
