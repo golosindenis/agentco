@@ -19,6 +19,7 @@ export type ApprovedDraft = {
   agent: string;
   body: string;
   createdAt: string;
+  kind: string;
 };
 
 /**
@@ -115,6 +116,11 @@ export function ReadyToPostSection({
             <div className="post-actions">
               <CopyButton text={d.body} />
               <MarkPostedForm draftId={d.id} />
+              {/* The carousel panel lives on the draft page; without this link
+                  nothing in the app reached it once a draft was approved. */}
+              {d.kind === "daily_draft" && (
+                <Link href={`/drafts/${d.id}`} className="draft-read">Make carousel</Link>
+              )}
             </div>
           </div>
         ))

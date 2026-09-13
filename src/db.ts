@@ -151,7 +151,7 @@ export async function latestBrief(): Promise<{ body: string; created_at: string 
  * round trip.
  */
 export async function approvedUnpostedDrafts(): Promise<
-  { id: string; agent: string; body: string; createdAt: string }[]
+  { id: string; agent: string; body: string; createdAt: string; kind: TaskKind }[]
 > {
   const { data, error } = await supabase
     .from("drafts")
@@ -163,12 +163,15 @@ export async function approvedUnpostedDrafts(): Promise<
   if (error) throw new Error(`approvedUnpostedDrafts failed: ${error.message}`);
 
   return ((data ?? []) as unknown as
-    { id: string; body: string; created_at: string; agents: { display_name: string } | null }[]
+    { id: string; body: string; created_at: string; agents: { display_name: string } | null; tasks: { kind: TaskKind } }[]
   ).map((row) => ({
     id: row.id,
     agent: row.agents?.display_name ?? "unknown",
     body: row.body,
     createdAt: row.created_at,
+    // Carried through so Ready to post can offer "Make carousel" only on
+    // daily posts, the one kind a carousel can be made from.
+    kind: row.tasks.kind,
   }));
 }
 
