@@ -674,23 +674,32 @@ export async function queueCarouselTask(draftId: string): Promise<void> {
   if (error) throw new Error(`queueCarouselTask failed: ${error.message}`);
 }
 
-/** The newest carousel task and newest carousel for one draft. */
+/**
+ * The newest carousel task, the newest carousel, and the newest SENT carousel
+ * for one draft. The last is fetched separately because a newer deck (queued
+ * or ready but not sent) must not hide images Denis already sent.
+ */
 export async function carouselStatusForDraft(draftId: string): Promise<{
-  task: CarouselTaskState | null; carousel: CarouselRow | null;
+  task: CarouselTaskState | null; carousel: CarouselRow | null; lastSent: CarouselRow | null;
 }> {
-  const [t, c] = await Promise.all([
+  const [t, c, s] = await Promise.all([
     supabase.from("tasks").select("state, error, created_at")
       .eq("source_draft_id", draftId).eq("kind", "carousel")
       .order("created_at", { ascending: false }).limit(1),
     supabase.from("carousels").select("*")
       .eq("source_draft_id", draftId)
       .order("created_at", { ascending: false }).limit(1),
+    supabase.from("carousels").select("*")
+      .eq("source_draft_id", draftId).eq("status", "sent")
+      .order("sent_at", { ascending: false }).limit(1),
   ]);
   if (t.error) throw new Error(`carouselStatusForDraft tasks: ${t.error.message}`);
   if (c.error) throw new Error(`carouselStatusForDraft carousels: ${c.error.message}`);
+  if (s.error) throw new Error(`carouselStatusForDraft sent: ${s.error.message}`);
   return {
     task: (t.data?.[0] as CarouselTaskState | undefined) ?? null,
     carousel: (c.data?.[0] as CarouselRow | undefined) ?? null,
+    lastSent: (s.data?.[0] as CarouselRow | undefined) ?? null,
   };
 }
 

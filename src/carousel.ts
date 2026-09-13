@@ -2,6 +2,17 @@ import type { CarouselRow, TaskState } from "./types.js";
 
 export type CarouselTaskState = { state: TaskState; error: string | null; created_at: string };
 
+export type SentSummary = { carouselId: string; slideCount: number };
+
+/**
+ * The sent carousel the draft page shows images for. Taken from the newest
+ * SENT carousel rather than the newest carousel, so a newer deck that is
+ * queued or ready never hides images Denis already sent.
+ */
+export function sentSummary(lastSent: CarouselRow | null): SentSummary | null {
+  return lastSent ? { carouselId: lastSent.id, slideCount: lastSent.slides.length } : null;
+}
+
 export type CarouselView =
   | { state: "none" }
   | { state: "waiting" }

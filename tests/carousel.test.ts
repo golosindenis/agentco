@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { carouselView } from "../src/carousel.js";
+import { carouselView, sentSummary } from "../src/carousel.js";
 
 const carousel = { id: "c1", status: "deck_ready", slides: [{}, {}, {}, {}, {}], created_at: "2026-09-14T09:00:00.000Z" } as any;
 
@@ -22,5 +22,14 @@ describe("carouselView", () => {
   it("reports sent carousels with their id", () => {
     expect(carouselView({ state: "done", error: null, created_at: "2026-09-14T08:00:00.000Z" }, { ...carousel, status: "sent" }))
       .toEqual({ state: "sent", slideCount: 5, carouselId: "c1" });
+  });
+});
+
+describe("sentSummary", () => {
+  it("summarises the newest sent carousel, so a newer deck cannot hide it", () => {
+    expect(sentSummary({ ...carousel, id: "old", status: "sent" })).toEqual({ carouselId: "old", slideCount: 5 });
+  });
+  it("is null when nothing was ever sent", () => {
+    expect(sentSummary(null)).toBeNull();
   });
 });

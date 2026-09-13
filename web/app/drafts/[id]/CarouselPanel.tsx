@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { requestCarousel, type ActionResult } from "../../actions";
-import type { CarouselView } from "../../../../src/carousel.js";
+import type { CarouselView, SentSummary } from "../../../../src/carousel.js";
 
 const initial: ActionResult = { ok: true };
 
@@ -23,8 +23,8 @@ async function downloadAll(urls: string[]): Promise<void> {
   }
 }
 
-export function CarouselPanel({ draftId, view, images, downloads }: {
-  draftId: string; view: CarouselView; images: string[]; downloads: string[];
+export function CarouselPanel({ draftId, view, sent, images, downloads }: {
+  draftId: string; view: CarouselView; sent: SentSummary | null; images: string[]; downloads: string[];
 }) {
   const [result, action, pending] = useActionState(async () => {
     const fd = new FormData();
@@ -56,14 +56,16 @@ export function CarouselPanel({ draftId, view, images, downloads }: {
           Carousel ready, {view.slideCount} slides. <a href={view.studioHref}>Open in studio</a>
         </p>
       )}
-      {view.state === "sent" && (
+      {/* Driven by the newest SENT carousel, not the newest carousel, so a
+          newer deck in progress shows above it instead of hiding it. */}
+      {sent && (
         <>
           <p>
-            Carousel sent, {view.slideCount} slides.{" "}
+            Carousel sent, {sent.slideCount} slides.{" "}
             <button type="button" className="primary" onClick={() => downloadAll(downloads)} disabled={downloads.length === 0}>
               Download all
             </button>{" "}
-            <a href={`/carousels/${view.carouselId}`}>Reopen studio</a>
+            <a href={`/carousels/${sent.carouselId}`}>Reopen studio</a>
           </p>
           <p className="hint">Download all saves every slide. Or right click (Mac) or long press (phone) one image.</p>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory" }}>
