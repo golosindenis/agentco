@@ -683,5 +683,11 @@ than quotes the post.
   phrases). Save runs parseDeck, refuses added/removed/retyped slides,
   stores the slides, and redraws the editor in place so the chosen Look
   survives. Send is blocked while text is unsaved.
-- **Login returns to the dashboard**, not the page that sent you there.
+- ~~**Login returns to the dashboard**~~ fixed in 4e13de8. The middleware
+  threw the requested path away, and the code form and the magic link
+  callback both hard coded `/`. The path now travels as `?next=` and both
+  return there through `safeNext`, which allows only agentco paths (refuses
+  full URLs, `//host`, `/\host`, schemes and `/login`). Verified on
+  production: a signed out GET of a draft redirects to
+  `/login?next=%2Fdrafts%2F…`.
 - **No way to decline a deck** or teach the Producer from the studio.
