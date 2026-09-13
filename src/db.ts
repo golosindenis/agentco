@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
-import type { AgentRow, TaskKind, TaskRow, TaskState, Verdict } from "./types.js";
+import type { AgentRow, CarouselRow, TaskKind, TaskRow, TaskState, Verdict } from "./types.js";
+import type { CarouselTaskState } from "./carousel.js";
 import { POSTABLE_KINDS } from "./types.js";
 import type { HealthFacts, HealthTask } from "./health.js";
 import type { RunEvent } from "./costs.js";
@@ -650,4 +651,42 @@ export async function insertCarousel(c: NewCarousel): Promise<void> {
     task_id: c.taskId, source_draft_id: c.sourceDraftId, slides: c.slides, watermark: c.watermark,
   });
   if (error) throw new Error(`insertCarousel failed: ${error.message}`);
+}
+
+/** Queues a Producer run for an approved draft. Refuses while one is in flight. */
+export async function queueCarouselTask(draftId: string): Promise<void> {
+  const producer = await getAgentByKey("producer");
+  if (!producer) throw new Error("Producer agent is missing; apply migration 0003.");
+  const { count, error: countErr } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("source_draft_id", draftId)
+    .eq("kind", "carousel")
+    .in("state", ["queued", "running"]);
+  if (countErr) throw new Error(`queueCarouselTask count failed: ${countErr.message}`);
+  if ((count ?? 0) > 0) throw new Error("A carousel for this draft is already on its way.");
+  const { error } = await supabase
+    .from("tasks")
+    .insert({ agent_id: producer.id, kind: "carousel", source_draft_id: draftId });
+  if (error) throw new Error(`queueCarouselTask failed: ${error.message}`);
+}
+
+/** The newest carousel task and newest carousel for one draft. */
+export async function carouselStatusForDraft(draftId: string): Promise<{
+  task: CarouselTaskState | null; carousel: CarouselRow | null;
+}> {
+  const [t, c] = await Promise.all([
+    supabase.from("tasks").select("state, error, created_at")
+      .eq("source_draft_id", draftId).eq("kind", "carousel")
+      .order("created_at", { ascending: false }).limit(1),
+    supabase.from("carousels").select("*")
+      .eq("source_draft_id", draftId)
+      .order("created_at", { ascending: false }).limit(1),
+  ]);
+  if (t.error) throw new Error(`carouselStatusForDraft tasks: ${t.error.message}`);
+  if (c.error) throw new Error(`carouselStatusForDraft carousels: ${c.error.message}`);
+  return {
+    task: (t.data?.[0] as CarouselTaskState | undefined) ?? null,
+    carousel: (c.data?.[0] as CarouselRow | undefined) ?? null,
+  };
 }

@@ -26,7 +26,7 @@
 import { revalidatePath } from "next/cache";
 import { recordVerdict, buildLiveReviewDeps } from "../../src/review.js";
 import { parseAngles, planAngleVerdict } from "../../src/angles.js";
-import { getDraftForReview, markPosted, updateDraftBody } from "../../src/db.js";
+import { getDraftForReview, markPosted, queueCarouselTask, updateDraftBody } from "../../src/db.js";
 import type { Verdict } from "../../src/types.js";
 import { currentUser } from "./lib/supabaseServer";
 
@@ -223,6 +223,31 @@ export async function markDraftPosted(formData: FormData): Promise<ActionResult>
  * doesn't apply; `setAgentEnabled` (src/db.ts) is a plain, unconditional
  * write.
  */
+/**
+ * Queues the Producer for one approved daily draft. Only approved
+ * daily_drafts can become carousels (spec), and the Mac worker picks the
+ * task up on its next run.
+ */
+export async function requestCarousel(formData: FormData): Promise<ActionResult> {
+  const unauthorized = await requireAuthorizedUser();
+  if (unauthorized) return unauthorized;
+
+  const draftId = String(formData.get("draftId") ?? "");
+  if (!draftId) return { ok: false, error: "Missing draft id." };
+  try {
+    const draft = await getDraftForReview(draftId);
+    if (!draft) return { ok: false, error: "This draft no longer exists." };
+    if (draft.status !== "approved" || draft.kind !== "daily_draft") {
+      return { ok: false, error: "Only approved daily posts can become carousels." };
+    }
+    await queueCarouselTask(draftId);
+    revalidatePath(`/drafts/${draftId}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function toggleAgentPaused(formData: FormData): Promise<ActionResult> {
   const unauthorized = await requireAuthorizedUser();
   if (unauthorized) return unauthorized;

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getDraftForReview } from "../../../../src/db.js";
+import { carouselStatusForDraft, getDraftForReview } from "../../../../src/db.js";
+import { carouselView } from "../../../../src/carousel.js";
 import { DraftActions } from "./DraftActions";
+import { CarouselPanel } from "./CarouselPanel";
 import { fmtDateTime } from "../../format";
 import { currentUser } from "../../lib/supabaseServer";
 import { isValidUuid } from "../../lib/isValidUuid";
@@ -31,6 +33,11 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
   const draft = await getDraftForReview(id);
   if (!draft) notFound();
 
+  // Only approved daily posts can become carousels (spec). Anything else
+  // skips the query entirely rather than rendering an empty panel.
+  const canCarousel = draft.status === "approved" && draft.kind === "daily_draft";
+  const carousel = canCarousel ? await carouselStatusForDraft(draft.id) : null;
+
   return (
     <main className="draft-page">
       <header className="draft-page-head">
@@ -51,7 +58,15 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
           <DraftActions draftId={draft.id} agentId={draft.agent_id} body={draft.body} />
         </>
       ) : (
-        <p className="note-band">Already {draft.status}.</p>
+        <>
+          <p className="note-band">Already {draft.status}.</p>
+          {carousel && (
+            <CarouselPanel
+              draftId={draft.id}
+              view={carouselView(carousel.task, carousel.carousel, process.env.CAROUSEL_EDITOR_URL ?? "")}
+            />
+          )}
+        </>
       )}
     </main>
   );
