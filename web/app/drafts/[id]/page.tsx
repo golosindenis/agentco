@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { carouselStatusForDraft, getDraftForReview } from "../../../../src/db.js";
+import { carouselStatusForDraft, getDraftForReview, signedImageUrls } from "../../../../src/db.js";
 import { carouselView } from "../../../../src/carousel.js";
 import { DraftActions } from "./DraftActions";
 import { CarouselPanel } from "./CarouselPanel";
@@ -37,6 +37,9 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
   // skips the query entirely rather than rendering an empty panel.
   const canCarousel = draft.status === "approved" && draft.kind === "daily_draft";
   const carousel = canCarousel ? await carouselStatusForDraft(draft.id) : null;
+  const images = carousel?.carousel?.status === "sent"
+    ? await signedImageUrls(carousel.carousel.image_paths ?? [])
+    : [];
 
   return (
     <main className="draft-page">
@@ -63,7 +66,8 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
           {carousel && (
             <CarouselPanel
               draftId={draft.id}
-              view={carouselView(carousel.task, carousel.carousel, process.env.CAROUSEL_EDITOR_URL ?? "")}
+              view={carouselView(carousel.task, carousel.carousel)}
+              images={images}
             />
           )}
         </>

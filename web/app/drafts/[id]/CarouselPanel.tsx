@@ -6,7 +6,7 @@ import type { CarouselView } from "../../../../src/carousel.js";
 
 const initial: ActionResult = { ok: true };
 
-export function CarouselPanel({ draftId, view }: { draftId: string; view: CarouselView }) {
+export function CarouselPanel({ draftId, view, images }: { draftId: string; view: CarouselView; images: string[] }) {
   const [result, action, pending] = useActionState(async () => {
     const fd = new FormData();
     fd.set("draftId", draftId);
@@ -34,11 +34,22 @@ export function CarouselPanel({ draftId, view }: { draftId: string; view: Carous
       )}
       {view.state === "deck_ready" && (
         <p>
-          Carousel ready, {view.slideCount} slides.{" "}
-          {view.editorHref ? <a href={view.editorHref}>Open editor</a> : "Editor not hosted yet."}
+          Carousel ready, {view.slideCount} slides. <a href={view.studioHref}>Open in studio</a>
         </p>
       )}
-      {view.state === "sent" && <p>Carousel sent, {view.slideCount} slides.</p>}
+      {view.state === "sent" && (
+        <>
+          <p>
+            Carousel sent, {view.slideCount} slides. Long press an image to save it.{" "}
+            <a href={`/carousels/${view.carouselId}`}>Reopen studio</a>
+          </p>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory" }}>
+            {images.map((src, i) => (
+              <img key={src} src={src} alt={`Slide ${i + 1}`} style={{ height: 320, width: "auto", flex: "0 0 auto", scrollSnapAlign: "start", borderRadius: 8 }} />
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
