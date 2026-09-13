@@ -728,10 +728,15 @@ export async function markCarouselSent(
   if (error) throw new Error(`markCarouselSent(${id}): ${error.message}`);
 }
 
-/** Viewable URLs for the phone, valid for an hour. */
-export async function signedImageUrls(paths: string[]): Promise<string[]> {
+/**
+ * Signed URLs for a carousel's images, valid for an hour. With `download`,
+ * Storage answers with Content-Disposition: attachment, so opening the URL
+ * saves the file under its own name instead of displaying it.
+ */
+export async function signedImageUrls(paths: string[], opts: { download?: boolean } = {}): Promise<string[]> {
   if (paths.length === 0) return [];
-  const { data, error } = await supabase.storage.from(CAROUSEL_BUCKET).createSignedUrls(paths, 3600);
+  const { data, error } = await supabase.storage.from(CAROUSEL_BUCKET)
+    .createSignedUrls(paths, 3600, opts.download ? { download: true } : undefined);
   if (error) throw new Error(`signedImageUrls: ${error.message}`);
   return (data ?? []).map((d) => d.signedUrl ?? "").filter(Boolean);
 }

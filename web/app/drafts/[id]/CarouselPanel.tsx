@@ -6,7 +6,26 @@ import type { CarouselView } from "../../../../src/carousel.js";
 
 const initial: ActionResult = { ok: true };
 
-export function CarouselPanel({ draftId, view, images }: { draftId: string; view: CarouselView; images: string[] }) {
+/**
+ * Starts each download in turn. The URLs are signed with Storage's download
+ * option, so each one saves under its own name; the gap keeps browsers from
+ * dropping back-to-back downloads. Chrome asks once to allow multiple files.
+ */
+async function downloadAll(urls: string[]): Promise<void> {
+  for (const url of urls) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    await new Promise((r) => setTimeout(r, 600));
+  }
+}
+
+export function CarouselPanel({ draftId, view, images, downloads }: {
+  draftId: string; view: CarouselView; images: string[]; downloads: string[];
+}) {
   const [result, action, pending] = useActionState(async () => {
     const fd = new FormData();
     fd.set("draftId", draftId);
@@ -40,9 +59,13 @@ export function CarouselPanel({ draftId, view, images }: { draftId: string; view
       {view.state === "sent" && (
         <>
           <p>
-            Carousel sent, {view.slideCount} slides. Long press an image to save it.{" "}
+            Carousel sent, {view.slideCount} slides.{" "}
+            <button type="button" className="primary" onClick={() => downloadAll(downloads)} disabled={downloads.length === 0}>
+              Download all
+            </button>{" "}
             <a href={`/carousels/${view.carouselId}`}>Reopen studio</a>
           </p>
+          <p className="hint">Download all saves every slide. Or right click (Mac) or long press (phone) one image.</p>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory" }}>
             {images.map((src, i) => (
               <img key={src} src={src} alt={`Slide ${i + 1}`} style={{ height: 320, width: "auto", flex: "0 0 auto", scrollSnapAlign: "start", borderRadius: 8 }} />
