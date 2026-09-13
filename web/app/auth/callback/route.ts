@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAuthClient } from "../../lib/supabaseServer";
 import { isAllowedEmail } from "../../lib/allowlist";
+import { safeNext } from "../../lib/safeNext";
 
 /**
  * Handles the emailed magic link, for when the code is clicked rather than
@@ -29,5 +30,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(new URL("/", request.url));
+  return NextResponse.redirect(new URL(safeNext(request.nextUrl.searchParams.get("next")), request.url));
 }

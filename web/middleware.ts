@@ -45,8 +45,12 @@ export async function middleware(request: NextRequest) {
   // service-role read/write of the live database behind it.
   if (!data.user || !isAllowedEmail(data.user.email ?? "", process.env.ALLOWED_EMAIL ?? "")) {
     const url = request.nextUrl.clone();
+    // Carry the page that was asked for, so signing in returns there instead
+    // of dropping Denis on the dashboard. The login page and the auth
+    // callback both pass it through safeNext before redirecting.
+    const wanted = request.nextUrl.pathname + request.nextUrl.search;
     url.pathname = "/login";
-    url.search = "";
+    url.search = wanted === "/" ? "" : `?next=${encodeURIComponent(wanted)}`;
     return NextResponse.redirect(url);
   }
 

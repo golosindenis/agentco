@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sendCode, verifyCode, type LoginResult } from "./actions";
+import { safeNext } from "../lib/safeNext";
 
 const initial: LoginResult = { ok: true, sent: false };
 
@@ -14,7 +15,10 @@ export default function LoginPage() {
     async (prev: LoginResult, fd: FormData) => {
       fd.set("email", email);
       const result = await verifyCode(prev, fd);
-      if (result.ok) router.replace("/");
+      // Return to the page the middleware sent Denis here from. Read at
+      // submit time from the URL rather than useSearchParams, which would
+      // force a Suspense boundary on this page for one value.
+      if (result.ok) router.replace(safeNext(new URLSearchParams(window.location.search).get("next")));
       return result;
     },
     initial,
