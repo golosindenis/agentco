@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SUBJECTS, subjectFor, bankHasSubject, type SubjectKey } from "../src/subjects.js";
+import { SUBJECTS, subjectFor, bankHasSubject, watermarkFor, type SubjectKey } from "../src/subjects.js";
 
 // 2026-09-14 is a Monday.
 const day = (offset: number) => new Date(2026, 8, 14 + offset, 7, 0, 0);
@@ -62,5 +62,15 @@ describe("bankHasSubject", () => {
     // The exact situation after angle 5 was edited out on 2026-09-12: a bank
     // with no [Denis] angle, on a day the rota says is Denis's.
     expect(bankHasSubject(bank, "denis")).toBe(false);
+  });
+});
+
+describe("watermarkFor", () => {
+  it("uses the Instagram handle for Attune and personal posts", () => {
+    expect(watermarkFor("attune")).toBe("@becoming_denis");
+    expect(watermarkFor("denis")).toBe("@becoming_denis");
+  });
+  it("uses the X handle for agentco posts", () => {
+    expect(watermarkFor("agentco")).toBe("@becomingdenis");
   });
 });

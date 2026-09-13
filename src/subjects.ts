@@ -83,3 +83,12 @@ export function subjectFor(date: Date): SubjectKey {
 export function bankHasSubject(bank: string, key: SubjectKey): boolean {
   return bank.includes(`[${SUBJECTS[key].tag}]`);
 }
+
+/**
+ * The handle stamped on a carousel. Attune and personal carousels go to
+ * Instagram (@becoming_denis, as every existing deck uses); agentco build in
+ * public goes to X, where the handle is @becomingdenis.
+ */
+export function watermarkFor(key: SubjectKey): string {
+  return key === "agentco" ? "@becomingdenis" : "@becoming_denis";
+}
