@@ -636,3 +636,44 @@ and slide 7 is long. Validation cannot catch that; a decline path can.
   images on the phone. The draft page says "Editor not hosted yet" until then.
 - **No way to decline a deck** or teach the Producer (e.g. "use subtext").
 - **Posted drafts cannot reach Make carousel** from the app.
+
+## 2026-09-13 (later) — the studio inside agentco (plan 2), and a hook that stops the scroll
+
+**Denis rejected the separately hosted editor** before it was built: the
+builder has to live inside the platform and the design has to be picked
+there. Spec revised; plan: `docs/superpowers/plans/2026-09-13-carousel-studio.md`.
+The fork stays the source. `npm run sync-studio` vendors `CarouselApp.tsx`,
+`lib/*.ts` and the builder's own CSS into `web/app/carousels/studio/`,
+rewriting one import to a live-binding `deck.ts`; a drift test fails if the
+copy differs from the fork. Two fork changes (b4e9e8c on `denis`): a
+`window.__carouselStudio` capture bridge and an MP4 guard. Tailwind was not
+brought in: the editor styles itself inline.
+
+**Two build failures, both from my checks, not the code.** `jspdf` is loaded
+by a dynamic `import()` inside PDF export, which a top-of-file import grep
+cannot see; the first build failed on it. And TypeScript 7 did not narrow
+`"error" in found`, so the actions now return an explicit `ok` union.
+
+**Proven on production.** Denis opened `/carousels/08299d60…` inside agentco,
+picked `vista`, pressed Send: row `sent`, 9 of 9 PNGs (2160×2700, 25.7 MB)
+in the private bucket, settings recorded. My first check reported "2 of 9"
+because it ran while slide 3 was uploading; Supabase storage logs showed
+every PUT 200. Check logs before calling an upload partial.
+
+**The images exposed a copy problem.** Slide 7 rendered correctly. Slide 1's
+hook was the post's 15 word opening sentence, which ran off the top and over
+the footer under vista. `parseDeck` now rejects hooks over 10 words, and the
+Producer writes the hook fresh from Denis's attune-viral-content formulas
+(minus "real moment story", which invites fabrication), grounded only in the
+post (144e15a, migration 0005). Rerun on the same post: "My wife saw three
+doctors. Three different shrugs." (8 words). Its subtext paraphrases rather
+than quotes the post.
+
+### Still open
+
+- **A newer deck hides a sent carousel** on the draft page, which shows only
+  the newest carousel.
+- **Studio edits are not saved back to the deck**; reopening shows the
+  Producer's text again.
+- **Login returns to the dashboard**, not the page that sent you there.
+- **No way to decline a deck** or teach the Producer from the studio.
