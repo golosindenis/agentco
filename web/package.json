@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local operations dashboard for the agentco engine. Reads and writes through ../src \u2014 see the root README's \"one source of truth\" rule.",
+  "description": "Local operations dashboard for the agentco engine. Reads and writes through ../src — see the root README's \"one source of truth\" rule.",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
@@ -14,6 +14,7 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.115.0",
     "dotenv": "^17.4.2",
+    "html-to-image": "^1.11.13",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

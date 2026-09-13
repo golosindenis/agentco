@@ -15,6 +15,7 @@
     "seed": "tsx src/seed.ts",
     "costs": "tsx scripts/costs.ts",
     "drafts": "tsx scripts/drafts.ts",
+    "sync-studio": "tsx scripts/sync-studio.ts",
     "web": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build"
   },
