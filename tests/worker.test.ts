@@ -51,6 +51,11 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
   finishTask: vi.fn(async () => {}),
   logEvent: vi.fn(async () => {}),
   gatherBriefFacts: vi.fn(async () => defaultBriefFacts),
+  getSourceDraft: vi.fn(async () => ({
+    body: "Every fitness plan gives a woman two choices on a bad day.",
+    status: "approved", kind: "daily_draft", created_at: "2026-09-14T08:00:00.000Z",
+  })),
+  insertCarousel: vi.fn(async () => {}),
   runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "A perfectly good draft body.", usage: defaultUsage })),
   ...over,
 });
@@ -324,5 +329,65 @@ describe("processOne", () => {
     expect(d.countPendingDrafts).not.toHaveBeenCalled();
     expect(d.finishTask).toHaveBeenCalledWith("t1", "done");
     expect(d.logEvent).toHaveBeenCalled();
+  });
+
+  const carouselTask = { ...task, kind: "carousel", source_draft_id: "d9" };
+  const validDeck = JSON.stringify([
+    { type: "hook", text: "Two choices on a bad day", italics: ["Two choices"] },
+    { type: "body", text: "Choice one" },
+    { type: "body", text: "Choice two" },
+    { type: "body", text: "A third choice" },
+    { type: "cta", text: "Building Attune" },
+  ]);
+  // A factory, not one shared mock: call history would otherwise leak between tests.
+  const deckRun = () => vi.fn(async (): Promise<RunResult> => ({ ok: true, body: validDeck, usage: defaultUsage }));
+
+  it("writes a carousel, not a draft, with the source post in the prompt", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => carouselTask), runAgent: deckRun() });
+    expect(await processOne(d, false)).toBe("produced");
+    const prompt = (d.runAgent as any).mock.calls[0][1] as string;
+    expect(prompt).toContain("Every fitness plan gives a woman two choices on a bad day.");
+    expect(d.insertDraft).not.toHaveBeenCalled();
+    expect(d.insertCarousel).toHaveBeenCalledWith({
+      taskId: "t1", sourceDraftId: "d9",
+      slides: JSON.parse(validDeck), watermark: "@becoming_denis",
+    });
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "done");
+  });
+
+  it("does not apply backpressure to a carousel", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => carouselTask), runAgent: deckRun(), countPendingDrafts: vi.fn(async () => 3) });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.countPendingDrafts).not.toHaveBeenCalled();
+  });
+
+  it("fails a carousel whose source draft is missing, without running the agent", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => carouselTask), getSourceDraft: vi.fn(async () => null) });
+    expect(await processOne(d, false)).toBe("failed");
+    expect(d.runAgent).not.toHaveBeenCalled();
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", "source draft d9 not found");
+  });
+
+  it("fails a carousel whose source draft is not an approved daily_draft", async () => {
+    const d = deps({
+      claimNextTask: vi.fn(async () => carouselTask),
+      getSourceDraft: vi.fn(async () => ({ body: "x", status: "pending", kind: "daily_draft", created_at: "2026-09-14T08:00:00.000Z" })),
+    });
+    expect(await processOne(d, false)).toBe("failed");
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", "source draft d9 is not an approved daily_draft");
+  });
+
+  it("fails a carousel with no source_draft_id", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => ({ ...carouselTask, source_draft_id: null })) });
+    expect(await processOne(d, false)).toBe("failed");
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", "carousel task has no source_draft_id");
+  });
+
+  it("rejects an invalid deck and saves nothing", async () => {
+    const d = deps({ claimNextTask: vi.fn(async () => carouselTask) });
+    expect(await processOne(d, false)).toBe("failed");
+    expect(d.insertCarousel).not.toHaveBeenCalled();
+    expect(d.logEvent).toHaveBeenCalledWith("output_rejected", { reason: "output is not valid JSON" }, "a1", "t1");
+    expect(d.finishTask).toHaveBeenCalledWith("t1", "failed", "output is not valid JSON");
   });
 });

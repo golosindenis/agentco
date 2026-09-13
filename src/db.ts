@@ -628,3 +628,26 @@ export async function draftReviewTimes(
     return { createdAt: row.created_at, reviewedAt: times[0] ?? null };
   });
 }
+
+export type SourceDraft = { body: string; status: string; kind: string; created_at: string };
+export type NewCarousel = { taskId: string; sourceDraftId: string; slides: unknown[]; watermark: string };
+
+/** The draft a carousel is made from, with its task kind, or null. */
+export async function getSourceDraft(id: string): Promise<SourceDraft | null> {
+  const { data, error } = await supabase
+    .from("drafts")
+    .select("body, status, created_at, tasks(kind)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getSourceDraft(${id}): ${error.message}`);
+  if (!data) return null;
+  const row = data as any;
+  return { body: row.body, status: row.status, kind: row.tasks?.kind ?? "", created_at: row.created_at };
+}
+
+export async function insertCarousel(c: NewCarousel): Promise<void> {
+  const { error } = await supabase.from("carousels").insert({
+    task_id: c.taskId, source_draft_id: c.sourceDraftId, slides: c.slides, watermark: c.watermark,
+  });
+  if (error) throw new Error(`insertCarousel failed: ${error.message}`);
+}

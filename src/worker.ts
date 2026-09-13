@@ -4,8 +4,9 @@ import { TASK_PROMPTS } from "./prompts.js";
 import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
-import { SUBJECTS, subjectFor, bankHasSubject } from "./subjects.js";
-import type { BriefFacts } from "./db.js";
+import { parseDeck } from "./deck.js";
+import { SUBJECTS, subjectFor, bankHasSubject, watermarkFor } from "./subjects.js";
+import type { BriefFacts, NewCarousel, SourceDraft } from "./db.js";
 
 export type WorkerOutcome =
   | "idle" | "produced" | "skipped_at_capacity" | "skipped_disabled" | "failed";
@@ -21,6 +22,8 @@ export type WorkerDeps = {
   finishTask: (id: string, state: "done" | "failed", error?: string) => Promise<void>;
   logEvent: (kind: string, detail: Record<string, unknown>, agentId?: string, taskId?: string) => Promise<void>;
   gatherBriefFacts: () => Promise<BriefFacts>;
+  getSourceDraft: (id: string) => Promise<SourceDraft | null>;
+  insertCarousel: (row: NewCarousel) => Promise<void>;
   runAgent: typeof runAgent;
 };
 
@@ -44,6 +47,8 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
     finishTask: db.finishTask,
     logEvent: db.logEvent,
     gatherBriefFacts: db.gatherBriefFacts,
+    getSourceDraft: db.getSourceDraft,
+    insertCarousel: db.insertCarousel,
     runAgent,
   };
 }
@@ -58,6 +63,59 @@ function errorToMessage(err: unknown): string {
   } catch {
     return "unstringifiable error";
   }
+}
+
+/**
+ * A carousel is made on request from a draft Denis already approved, so it
+ * has none of the daily machinery: no backpressure (it is not awaiting a
+ * verdict), no identical-output guard, and it writes `carousels`, never
+ * `drafts`, so it can never move the ladder. `markWritten` lets processOne's
+ * catch report a bookkeeping failure after the insert as produced, exactly
+ * as it does for drafts.
+ */
+async function produceCarousel(
+  deps: WorkerDeps, task: TaskRow, agent: AgentRow, markWritten: () => void,
+): Promise<WorkerOutcome> {
+  const fail = async (reason: string, event: string) => {
+    await deps.logEvent(event, { reason }, agent.id, task.id);
+    await deps.finishTask(task.id, "failed", reason);
+    return "failed" as const;
+  };
+
+  if (!task.source_draft_id) return fail("carousel task has no source_draft_id", "no_source_draft");
+  const source = await deps.getSourceDraft(task.source_draft_id);
+  if (!source) return fail(`source draft ${task.source_draft_id} not found`, "no_source_draft");
+  if (source.status !== "approved" || source.kind !== "daily_draft") {
+    return fail(`source draft ${task.source_draft_id} is not an approved daily_draft`, "no_source_draft");
+  }
+
+  // The subject is the one the post was written for: the rota day it was created.
+  const subjectKey = subjectFor(new Date(source.created_at));
+  const prompt =
+    `${TASK_PROMPTS.carousel}\n\n## Subject: ${SUBJECTS[subjectKey].label}\n\n${SUBJECTS[subjectKey].voice}` +
+    `\n\n## Approved post\n\n${source.body}`;
+
+  const run = await deps.runAgent(agent, prompt);
+  if (!run.ok) return fail(run.reason, "run_failed");
+
+  const deck = parseDeck(run.body);
+  if (!deck.ok) return fail(deck.reason, "output_rejected");
+
+  await deps.insertCarousel({
+    taskId: task.id, sourceDraftId: task.source_draft_id,
+    slides: deck.slides, watermark: watermarkFor(subjectKey),
+  });
+  markWritten();
+  await deps.logEvent("carousel_created", {
+    slides: deck.slides.length,
+    costUsd: run.usage.costUsd,
+    inputTokens: run.usage.inputTokens,
+    outputTokens: run.usage.outputTokens,
+    durationMs: run.usage.durationMs,
+    model: run.usage.model,
+  }, agent.id, task.id);
+  await deps.finishTask(task.id, "done");
+  return "produced";
 }
 
 export async function processOne(
@@ -78,6 +136,10 @@ export async function processOne(
       await deps.logEvent("skipped_disabled", {}, agent.id, task.id);
       await deps.finishTask(task.id, "done");
       return "skipped_disabled";
+    }
+
+    if (task.kind === "carousel") {
+      return await produceCarousel(deps, task, agent, () => { draftWritten = true; });
     }
 
     const isBrief = task.kind === "brief";

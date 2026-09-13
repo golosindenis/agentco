@@ -3,7 +3,14 @@
 -- their own table, like briefs: the source draft was already approved, and a
 -- deck is not something to approve or decline, so it never enters `drafts`,
 -- never counts toward backpressure and never moves the ladder.
-alter table tasks add column source_draft_id uuid references drafts(id) on delete cascade;
+-- Deliberately NOT a foreign key. drafts.task_id already references tasks; a
+-- second FK in the other direction makes PostgREST find two relationships
+-- between drafts and tasks and refuse every `tasks(kind)` embed on drafts
+-- ("Could not embed because more than one relationship was found"). That
+-- broke the draft page and the Writer's angle bank query in production on
+-- 2026-09-13 until the constraint was dropped. The worker checks the source
+-- draft exists instead.
+alter table tasks add column source_draft_id uuid;
 
 create table carousels (
   id              uuid primary key default gen_random_uuid(),
