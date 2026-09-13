@@ -18,6 +18,10 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-13 (d6c8548…938de6f) — Carousel Producer and a studio inside agentco:
+  Make carousel → Producer deck (10 word stop scroll hook) → `/carousels/[id]`
+  with the vendored fork editor, Edit text, Send, Download all. Also RunAtLoad
+  for the 07:00 run and `?next=` sign in return. Decline deck is designed only.
 - 2026-09-12 (cecd5dd) — per-angle verdicts on an angle bank: untick to drop,
   survivors renumbered. A reason always records; a rule appends only when asked.
   `src/angles.ts` is pure and tested; `ladder.ts` unchanged.
@@ -31,11 +35,21 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-12 (6b4cf3d) — `/org` shows whether drafts are reviewed within a day
   (trailing 14d) plus median time to review. `src/cadence.ts` is pure and tested;
   `rate` is null, not 0, when nothing is eligible.
-- 2026-09-12 (af34694, bb02d13, e74a227) — **login works from his phone.** Custom
-  SMTP via Resend was the unlock: Supabase locks email templates on the built-in
-  mailer, so `{{ .Token }}` could not be added until SMTP existed. Signup now
-  disabled; `shouldCreateUser` flipped to false.
 ## Hard-Won Rules
+
+- **Never add a second foreign key between two tables that already have one.**
+  PostgREST then finds two relationships and refuses every embed across them
+  ("more than one relationship was found"). `tasks.source_draft_id → drafts`
+  did this on 2026-09-13 and broke the draft page and the Writer's angle bank
+  query in production; only the live-DB tests caught it. Run `tests/db.test.ts`
+  right after any migration that adds a foreign key.
+- **launchd's StartCalendarInterval never catches up after power-off**, only
+  after sleep. The 07:00 run silently skipped five mornings. `RunAtLoad` covers
+  it because `schedule.ts` skips anything already queued today; keep both.
+- **`web/app/carousels/studio/` is generated from the threads-carousel fork.**
+  Change the fork (branch `denis-customizations`, push to `denis` only), then
+  `npm run sync-studio`; the drift test fails on hand edits. When vendoring,
+  grep for dynamic `import(` too: `jspdf` is loaded that way and broke the build.
 
 - **The Vercel project's Framework Preset must stay Next.js.** It was created as
   "Other", which silently skips the Next builder entirely: the deploy succeeds,

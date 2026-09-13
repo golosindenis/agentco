@@ -689,5 +689,21 @@ than quotes the post.
   return there through `safeNext`, which allows only agentco paths (refuses
   full URLs, `//host`, `/\host`, schemes and `/login`). Verified on
   production: a signed out GET of a draft redirects to
-  `/login?next=%2Fdrafts%2F…`.
+  `/login?next=%2Fdrafts%2F…`. The sign in round trip itself was not yet
+  tried in a browser at wrap time.
+- **Decline deck: designed, not approved, not built.** Denis chose that a
+  decline queues a new deck immediately. Proposed: a Decline button in the
+  studio (reason required, "make this a rule" opt-in); the reason always
+  saved as Producer feedback; the rule appended through `appendRule` /
+  `MAX_RULES` like the Writer's; migration 0006 adds a `declined` status and
+  `decline_reason`; the worker feeds the latest decline reason for that post
+  into the next Producer prompt; `carouselView` gains a declined state; the
+  Producer ladder is deliberately untouched (it publishes nothing).
+  `approvals` has an FK to `drafts`, so `recordVerdict` cannot be reused for
+  decks; `feedback` is per agent and can. Get Denis's yes on this before
+  building.
+
+Also unverified at wrap: the studio Edit text panel (ab0430c) has not been
+used in a browser, and the fork-parity comparison of a local export against
+agentco's images was skipped.
 - **No way to decline a deck** or teach the Producer from the studio.
