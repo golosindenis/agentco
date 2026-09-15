@@ -7,7 +7,7 @@ export type AgentState = {
   recent: Verdict[];
 };
 
-export type TaskKind = "weekly_angles" | "daily_draft" | "brief" | "wholesale_outreach" | "carousel";
+export type TaskKind = "weekly_angles" | "daily_draft" | "brief" | "wholesale_outreach" | "carousel" | "shot_list";
 export type TaskState = "queued" | "running" | "done" | "failed";
 
 /** Task kinds whose approved drafts are things Denis actually publishes.
@@ -48,6 +48,7 @@ export type DraftRow = {
   task_id: string;
   agent_id: string;
   body: string;
+  photo_path?: string | null;
   status: "pending" | "approved" | "declined";
   created_at: string;
 };
