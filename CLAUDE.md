@@ -38,6 +38,12 @@ instructions so the correction sticks. **Nothing publishes.**
   `wholesale_outreach` kind. Scheduler installed and firing.
 ## Hard-Won Rules
 
+- **Agents must not see Denis's personal skills.** The spawned `claude` inherits
+  HOME and so loaded `~/.claude/skills`; the Writer copied a stale "15 women"
+  line from his my-content vault into two posts, and a rule against invented
+  numbers could not stop it because the number was in context. Keep
+  `--disable-slash-commands` in `buildArgs`.
+
 - **Never add a second foreign key between two tables that already have one.**
   PostgREST then finds two relationships and refuses every embed across them
   ("more than one relationship was found"). `tasks.source_draft_id → drafts`

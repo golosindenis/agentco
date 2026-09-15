@@ -38,6 +38,12 @@ export function buildArgs(agent: Pick<AgentRow, "turn_cap">): string[] {
     // JSON output is what makes usage/cost telemetry parseable at all — see
     // parseRunJson below. Verified against the installed CLI (v2.1.195).
     "--output-format", "json",
+    // HOME is inherited (see buildChildEnv), which also loads Denis's
+    // personal skills. On 2026-09-15 the Writer copied a stale "15 women"
+    // line from his my-content idea vault into two posts. Agents write only
+    // from their instructions and task prompt. Verified on CLI 2.1.263:
+    // with this flag the child reports no skills.
+    "--disable-slash-commands",
   ];
 }
 
@@ -61,9 +67,9 @@ const ENV_ALLOWLIST_PREFIXES = ["ANTHROPIC_", "CLAUDE_"];
  *
  * HOME stays on the allowlist deliberately, even though it is also how the
  * child inherits the user's global Claude config, plugins, and every
- * configured MCP server (Supabase, GitHub, Vercel, computer use, ...): the
- * agent's skills live under HOME too, and dropping it would break skill
- * loading entirely. That trade-off is accepted here, not eliminated —
+ * configured MCP server (Supabase, GitHub, Vercel, computer use, ...). HOME
+ * is also where the CLI's login lives. Skills are switched off separately
+ * by --disable-slash-commands in buildArgs. The rest is accepted here, not eliminated —
  * restricting which MCP servers/tools the spawned CLI can use needs
  * CLI flags verified against the installed `claude` binary, which is
  * separate, not-yet-done work.

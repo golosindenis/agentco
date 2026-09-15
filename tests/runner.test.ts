@@ -73,6 +73,10 @@ describe("buildArgs", () => {
     expect(args).toContain("--output-format");
     expect(args[args.indexOf("--output-format") + 1]).toBe("json");
   });
+
+  it("disables Denis's personal skills so agents cannot copy his idea vault", () => {
+    expect(buildArgs(agent)).toContain("--disable-slash-commands");
+  });
 });
 
 describe("parseRunJson", () => {
