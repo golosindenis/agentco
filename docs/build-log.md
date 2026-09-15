@@ -728,3 +728,44 @@ and a production probe of the new queries (a sent deck refuses the decline).
 Not yet verified: a real decline in the browser on production, the queued
 redo actually quoting the reason, and still the Edit text panel and sign in
 round trip from 2026-09-13.
+
+## 2026-09-15 (later) — Writer content fixes, skills cut off, posting build started
+
+**Writer content, tuned live against production.** Denis declined three
+Writer posts ("I want post about building in public", "Too generic" x2);
+declines never queue a new post, only the 07:00 run does, which read as a bug
+and was not. "Too generic" was rewritten in place as a concrete specificity
+rule. Posts were then made on demand by inserting a `daily_draft` task and
+running the worker by hand (no "Run now" button, deliberately).
+
+**The "15 women" figure was not invented, it was copied.** Two posts reused a
+line from Denis's `~/.claude/skills/my-content/SKILL.md` idea vault
+(2026-08-13, now stale). The spawned `claude` inherits HOME and so loaded all
+his personal skills; a new "never state a number not given to you" rule could
+not stop it because the number WAS in context. I first told Denis the number
+was fabricated; that was wrong and I corrected it. Fix e5557b7: `buildArgs`
+passes `--disable-slash-commands` (verified on CLI 2.1.263: child lists NONE
+vs all skills without it; `--bare` does not disable skills). Writer rules
+added through declines: number rule, coach-not-AI rule, "angle bank only,
+never reuse a line or figure". Writer at 13 of 30 rules.
+
+**Still open on content (deferred by Denis to after the platform builds):**
+draft ddc0df24 is pending and falsely says Attune adjusts plans around the
+cycle; Strategist bank angles #1 and #2 rest on the same false premise; what
+plans actually adjust around was never answered.
+
+**Priority change.** Denis put platform features ahead of content rules:
+posting, then video editor, then AI avatar. Posting spec 5bb1f2a
+(`docs/superpowers/specs/2026-09-15-meta-posting-design.md`): Meta first via
+direct API, schedule or post now from the cloud, accounts @becoming_denis,
+@attune, @thesolutiontape (hand-picked only), a weekly shot list with photo
+uploads attached to daily posts. LinkedIn and X are the next build. Plan
+0d2fff7, 10 tasks.
+
+**Tasks 1 to 4 built on `feature/meta-posting` (not merged):** e572e01
+migration 0007 (applied to production ahead of merge; additive, unused by
+live code), a0b781e rules, c6657e1 Graph client and publishers, cbb7eb1
+publishDue engine and store. 288 unit tests, 19 live DB tests, typecheck
+clean; a production probe signed a real carousel slide URL (200 image/png).
+Nothing has been sent to Meta yet: publishers are tested against recorded
+response shapes only. Task 5 needs Denis to create the Meta app.
