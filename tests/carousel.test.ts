@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { carouselView, sentSummary } from "../src/carousel.js";
+import { carouselView, sentSummary, shouldRequeue, declinedDeckNote, MAX_DECLINED_DECKS } from "../src/carousel.js";
 
 const carousel = { id: "c1", status: "deck_ready", slides: [{}, {}, {}, {}, {}], created_at: "2026-09-14T09:00:00.000Z" } as any;
 
@@ -22,6 +22,29 @@ describe("carouselView", () => {
   it("reports sent carousels with their id", () => {
     expect(carouselView({ state: "done", error: null, created_at: "2026-09-14T08:00:00.000Z" }, { ...carousel, status: "sent" }))
       .toEqual({ state: "sent", slideCount: 5, carouselId: "c1" });
+  });
+});
+
+describe("declined decks", () => {
+  const done = { state: "done", error: null, created_at: "2026-09-14T08:00:00.000Z" } as const;
+  const declined = { ...carousel, status: "declined", decline_reason: "hook is a question" };
+
+  it("shows a declined deck with its reason and a way to make another", () => {
+    expect(carouselView(done, declined, 1)).toEqual({ state: "declined", reason: "hook is a question" });
+  });
+  it("asks for a rethink once three decks were declined", () => {
+    expect(carouselView(done, declined, 3)).toEqual({ state: "rethink", reason: "hook is a question", declinedCount: 3 });
+  });
+  it("still shows waiting while the requeued deck is on its way", () => {
+    expect(carouselView({ ...done, state: "queued" }, declined, 1)).toEqual({ state: "waiting" });
+  });
+  it("requeues only under the cap", () => {
+    expect(shouldRequeue(2)).toBe(true);
+    expect(shouldRequeue(MAX_DECLINED_DECKS)).toBe(false);
+  });
+  it("tells the Producer why the last deck was declined", () => {
+    expect(declinedDeckNote(null)).toBe("");
+    expect(declinedDeckNote("hook is a question")).toContain("hook is a question");
   });
 });
 

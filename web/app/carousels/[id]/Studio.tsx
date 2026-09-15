@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ComponentType } from "react";
 import { setDeck } from "../studio/deck";
-import { completeCarousel, saveCarouselSlides, startCarouselUpload } from "../actions";
+import { completeCarousel, declineDeck, saveCarouselSlides, startCarouselUpload } from "../actions";
 import { editSlide, italicsFromLines, italicsToLines, type EditableField } from "../../../../src/slideEdit.js";
 
 type Bridge = {
@@ -18,9 +18,13 @@ type Slide = Record<string, unknown> & { type: string };
 const field = { width: "100%", background: "#0a0a0a", color: "#fff", border: "1px solid #333", borderRadius: 6, padding: "6px 8px", font: "inherit", fontSize: 14 } as const;
 const button = (enabled: boolean, colour: string) => ({ padding: "8px 20px", borderRadius: 8, border: "none", background: enabled ? colour : "#444", color: "#fff", fontWeight: 600, cursor: enabled ? "pointer" : "not-allowed" }) as const;
 
-export function Studio({ carouselId, draftId, slides, watermark, alreadySent }: {
-  carouselId: string; draftId: string; slides: unknown[]; watermark: string; alreadySent: boolean;
+export function Studio({ carouselId, draftId, slides, watermark, alreadySent, declinedReason }: {
+  carouselId: string; draftId: string; slides: unknown[]; watermark: string; alreadySent: boolean; declinedReason: string | null;
 }) {
+  const [declined, setDeclined] = useState<string | null>(declinedReason);
+  const [showDecline, setShowDecline] = useState(false);
+  const [reason, setReason] = useState("");
+  const [makeRule, setMakeRule] = useState(false);
   const [Editor, setEditor] = useState<ComponentType | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(alreadySent ? "Already sent. Sending again replaces the images." : "");
@@ -92,7 +96,27 @@ export function Studio({ carouselId, draftId, slides, watermark, alreadySent }: 
     }
   }
 
-  const ready = !busy && !!Editor;
+  async function decline() {
+    if (!reason.trim()) { setStatus("Give a reason for declining."); return; }
+    setBusy(true);
+    try {
+      const r = await declineDeck(carouselId, reason, makeRule);
+      if (!r.ok) throw new Error(r.error);
+      setDeclined(reason.trim());
+      setShowDecline(false);
+      const rule = r.ruleAppended ? " Added as a rule." : r.atRuleCap ? " Not added as a rule: the Producer is at its rule cap, consolidate first." : "";
+      const next = r.requeued
+        ? " A new deck is queued for your Mac."
+        : r.requeueError ? ` No new deck queued: ${r.requeueError}` : ` ${r.declinedCount} decks declined for this post, so no new deck was queued.`;
+      setStatus(`Declined.${rule}${next}`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const ready = !busy && !!Editor && declined === null;
 
   return (
     <>
@@ -104,10 +128,32 @@ export function Studio({ carouselId, draftId, slides, watermark, alreadySent }: 
         <button onClick={send} disabled={!ready} className="tb-btn" style={button(ready, "#22C55E")}>
           {busy ? "Working…" : "Send"}
         </button>
+        {!alreadySent && declined === null && (
+          <button onClick={() => setShowDecline((v) => !v)} disabled={busy} className="tb-btn" style={button(!busy, "#B91C1C")}>
+            Decline
+          </button>
+        )}
+        {declined !== null && <span style={{ color: "#fca5a5", fontSize: 14 }}>Declined: {declined}</span>}
         <span style={{ color: "#d4d4d4", fontSize: 14 }}>
           {status}{textChangedSinceSend && !status.includes("Send") ? " Text changed since the last Send." : ""}
         </span>
       </div>
+
+      {showDecline && declined === null && (
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #262626", background: "#111", display: "grid", gap: 10, maxWidth: 640 }}>
+          <label style={{ fontSize: 12, color: "#a3a3a3" }}>Why is this deck not good enough? (required)
+            <textarea rows={3} style={field} value={reason} onChange={(e) => setReason(e.target.value)} />
+          </label>
+          <label style={{ fontSize: 14, color: "#d4d4d4", display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="checkbox" checked={makeRule} onChange={(e) => setMakeRule(e.target.checked)} />
+            Make this a rule for the Producer
+          </label>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button onClick={decline} disabled={busy || !reason.trim()} className="tb-btn" style={button(!busy && !!reason.trim(), "#B91C1C")}>Decline and make a new deck</button>
+            <span style={{ color: "#a3a3a3", fontSize: 13 }}>After 3 declined decks for this post, no new deck is queued.</span>
+          </div>
+        </div>
+      )}
 
       {showText && (
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #262626", background: "#111", display: "grid", gap: 14 }}>

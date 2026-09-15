@@ -680,9 +680,9 @@ export async function queueCarouselTask(draftId: string): Promise<void> {
  * or ready but not sent) must not hide images Denis already sent.
  */
 export async function carouselStatusForDraft(draftId: string): Promise<{
-  task: CarouselTaskState | null; carousel: CarouselRow | null; lastSent: CarouselRow | null;
+  task: CarouselTaskState | null; carousel: CarouselRow | null; lastSent: CarouselRow | null; declinedCount: number;
 }> {
-  const [t, c, s] = await Promise.all([
+  const [t, c, s, declinedCount] = await Promise.all([
     supabase.from("tasks").select("state, error, created_at")
       .eq("source_draft_id", draftId).eq("kind", "carousel")
       .order("created_at", { ascending: false }).limit(1),
@@ -692,6 +692,7 @@ export async function carouselStatusForDraft(draftId: string): Promise<{
     supabase.from("carousels").select("*")
       .eq("source_draft_id", draftId).eq("status", "sent")
       .order("sent_at", { ascending: false }).limit(1),
+    countDeclinedCarousels(draftId),
   ]);
   if (t.error) throw new Error(`carouselStatusForDraft tasks: ${t.error.message}`);
   if (c.error) throw new Error(`carouselStatusForDraft carousels: ${c.error.message}`);
@@ -700,6 +701,7 @@ export async function carouselStatusForDraft(draftId: string): Promise<{
     task: (t.data?.[0] as CarouselTaskState | undefined) ?? null,
     carousel: (c.data?.[0] as CarouselRow | undefined) ?? null,
     lastSent: (s.data?.[0] as CarouselRow | undefined) ?? null,
+    declinedCount,
   };
 }
 
@@ -744,6 +746,55 @@ export async function markCarouselSent(
     status: "sent", image_paths: paths, look: settings.lookId ?? null, settings, sent_at: new Date().toISOString(),
   }).eq("id", id);
   if (error) throw new Error(`markCarouselSent(${id}): ${error.message}`);
+}
+
+/**
+ * Declines a deck only while it is still deck_ready. Returns null when no row
+ * changed (already sent, already declined, or missing), which is what makes a
+ * double submit harmless.
+ */
+export async function markCarouselDeclined(id: string, reason: string): Promise<{ sourceDraftId: string } | null> {
+  const { data, error } = await supabase.from("carousels")
+    .update({ status: "declined", decline_reason: reason, declined_at: new Date().toISOString() })
+    .eq("id", id).eq("status", "deck_ready")
+    .select("source_draft_id");
+  if (error) throw new Error(`markCarouselDeclined(${id}): ${error.message}`);
+  const row = data?.[0] as { source_draft_id: string } | undefined;
+  return row ? { sourceDraftId: row.source_draft_id } : null;
+}
+
+export async function countDeclinedCarousels(sourceDraftId: string): Promise<number> {
+  const { count, error } = await supabase.from("carousels")
+    .select("id", { count: "exact", head: true })
+    .eq("source_draft_id", sourceDraftId).eq("status", "declined");
+  if (error) throw new Error(`countDeclinedCarousels(${sourceDraftId}): ${error.message}`);
+  return count ?? 0;
+}
+
+/** The newest decline reason for a post, or null when no deck was declined. */
+export async function latestDeclineReason(sourceDraftId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("carousels")
+    .select("decline_reason")
+    .eq("source_draft_id", sourceDraftId).eq("status", "declined")
+    .order("declined_at", { ascending: false }).limit(1);
+  if (error) throw new Error(`latestDeclineReason(${sourceDraftId}): ${error.message}`);
+  return (data?.[0]?.decline_reason as string | null | undefined) ?? null;
+}
+
+export async function insertAgentFeedback(agentId: string, reason: string): Promise<void> {
+  const { error } = await supabase.from("feedback").insert({ agent_id: agentId, reason });
+  if (error) throw new Error(`insertAgentFeedback: ${error.message}`);
+}
+
+export async function getAgentInstructions(agentId: string): Promise<string> {
+  const { data, error } = await supabase.from("agents").select("instructions").eq("id", agentId).single();
+  if (error) throw new Error(`getAgentInstructions: ${error.message}`);
+  return data.instructions;
+}
+
+export async function setAgentInstructions(agentId: string, instructions: string): Promise<void> {
+  const { error } = await supabase.from("agents").update({ instructions }).eq("id", agentId);
+  if (error) throw new Error(`setAgentInstructions: ${error.message}`);
 }
 
 /**

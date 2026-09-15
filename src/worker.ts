@@ -5,6 +5,7 @@ import type { AgentRow, TaskKind, TaskRow } from "./types.js";
 import type { RunResult } from "./runner.js";
 import { runAgent } from "./runner.js";
 import { parseDeck } from "./deck.js";
+import { declinedDeckNote } from "./carousel.js";
 import { SUBJECTS, subjectFor, bankHasSubject, watermarkFor } from "./subjects.js";
 import type { BriefFacts, NewCarousel, SourceDraft } from "./db.js";
 
@@ -24,6 +25,7 @@ export type WorkerDeps = {
   gatherBriefFacts: () => Promise<BriefFacts>;
   getSourceDraft: (id: string) => Promise<SourceDraft | null>;
   insertCarousel: (row: NewCarousel) => Promise<void>;
+  latestDeclineReason: (sourceDraftId: string) => Promise<string | null>;
   runAgent: typeof runAgent;
 };
 
@@ -49,6 +51,7 @@ async function buildLiveDeps(): Promise<WorkerDeps> {
     gatherBriefFacts: db.gatherBriefFacts,
     getSourceDraft: db.getSourceDraft,
     insertCarousel: db.insertCarousel,
+    latestDeclineReason: db.latestDeclineReason,
     runAgent,
   };
 }
@@ -93,7 +96,8 @@ async function produceCarousel(
   const subjectKey = subjectFor(new Date(source.created_at));
   const prompt =
     `${TASK_PROMPTS.carousel}\n\n## Subject: ${SUBJECTS[subjectKey].label}\n\n${SUBJECTS[subjectKey].voice}` +
-    `\n\n## Approved post\n\n${source.body}`;
+    `\n\n## Approved post\n\n${source.body}` +
+    declinedDeckNote(await deps.latestDeclineReason(task.source_draft_id));
 
   const run = await deps.runAgent(agent, prompt);
   if (!run.ok) return fail(run.reason, "run_failed");

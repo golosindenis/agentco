@@ -23,6 +23,7 @@ export default async function CarouselStudioPage({ params }: { params: Promise<{
       slides={carousel.slides}
       watermark={carousel.watermark}
       alreadySent={carousel.status === "sent"}
+      declinedReason={carousel.status === "declined" ? (carousel.decline_reason ?? "no reason recorded") : null}
     />
   );
 }

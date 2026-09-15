@@ -1,7 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { carouselObjectPaths, createSlideUploadUrls, getCarousel, markCarouselSent, updateCarouselSlides } from "../../../src/db.js";
+import {
+  carouselObjectPaths, countDeclinedCarousels, createSlideUploadUrls, getAgentByKey, getAgentInstructions, getCarousel,
+  insertAgentFeedback, markCarouselDeclined, markCarouselSent, queueCarouselTask, setAgentInstructions, updateCarouselSlides,
+} from "../../../src/db.js";
+import { declineCarousel, type DeclineResult } from "../../../src/declineDeck.js";
 import { expectedPaths, missingSlides } from "../../../src/carouselFiles.js";
 import { parseDeck } from "../../../src/deck.js";
 import { sameShape } from "../../../src/slideEdit.js";
@@ -47,6 +51,35 @@ export async function saveCarouselSlides(carouselId: string, slides: Record<stri
     await updateCarouselSlides(carouselId, check.slides);
     revalidatePath(`/carousels/${carouselId}`);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type DeclineOutcome = DeclineResult | { ok: false; error: string };
+
+/** Declines a deck before Send; see src/declineDeck.ts. */
+export async function declineDeck(carouselId: string, reason: string, makeRule: boolean): Promise<DeclineOutcome> {
+  try {
+    if (!(await currentUser())) return { ok: false, error: "Not authorized." };
+    const result = await declineCarousel({
+      markDeclined: markCarouselDeclined,
+      producerId: async () => {
+        const producer = await getAgentByKey("producer");
+        if (!producer) throw new Error("Producer agent is missing.");
+        return producer.id;
+      },
+      insertFeedback: insertAgentFeedback,
+      loadInstructions: getAgentInstructions,
+      saveInstructions: setAgentInstructions,
+      countDeclined: countDeclinedCarousels,
+      queueCarousel: queueCarouselTask,
+    }, carouselId, reason, makeRule);
+    if (result.ok) {
+      revalidatePath(`/drafts/${result.sourceDraftId}`);
+      revalidatePath(`/carousels/${carouselId}`);
+    }
+    return result;
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

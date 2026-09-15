@@ -56,6 +56,7 @@ const deps = (over: Partial<WorkerDeps> = {}): WorkerDeps => ({
     status: "approved", kind: "daily_draft", created_at: "2026-09-14T08:00:00.000Z",
   })),
   insertCarousel: vi.fn(async () => {}),
+  latestDeclineReason: vi.fn(async () => null),
   runAgent: vi.fn(async (): Promise<RunResult> => ({ ok: true, body: "A perfectly good draft body.", usage: defaultUsage })),
   ...over,
 });
@@ -353,6 +354,16 @@ describe("processOne", () => {
       slides: JSON.parse(validDeck), watermark: "@becoming_denis",
     });
     expect(d.finishTask).toHaveBeenCalledWith("t1", "done");
+  });
+
+  it("gives the Producer the reason the last deck for this post was declined", async () => {
+    const d = deps({
+      claimNextTask: vi.fn(async () => carouselTask), runAgent: deckRun(),
+      latestDeclineReason: vi.fn(async () => "hook is a question"),
+    });
+    expect(await processOne(d, false)).toBe("produced");
+    expect(d.latestDeclineReason).toHaveBeenCalledWith("d9");
+    expect((d.runAgent as any).mock.calls[0][1]).toContain("hook is a question");
   });
 
   it("does not apply backpressure to a carousel", async () => {

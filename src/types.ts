@@ -58,7 +58,9 @@ export type CarouselRow = {
   source_draft_id: string;
   slides: unknown[];
   watermark: string;
-  status: "deck_ready" | "sent";
+  status: "deck_ready" | "sent" | "declined";
+  decline_reason?: string | null;
+  declined_at?: string | null;
   look: string | null;
   settings: Record<string, unknown> | null;
   image_paths: string[] | null;

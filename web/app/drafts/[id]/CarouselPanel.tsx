@@ -51,6 +51,18 @@ export function CarouselPanel({ draftId, view, sent, images, downloads }: {
           {button("Try again")}
         </>
       )}
+      {view.state === "declined" && (
+        <>
+          <p>Last deck declined: {view.reason}</p>
+          {button("Make another deck")}
+        </>
+      )}
+      {view.state === "rethink" && (
+        <>
+          <p>Needs a rethink. {view.declinedCount} decks declined for this post, so no new deck was queued. Last reason: {view.reason}</p>
+          {button("Make another deck")}
+        </>
+      )}
       {view.state === "deck_ready" && (
         <p>
           Carousel ready, {view.slideCount} slides. <a href={view.studioHref}>Open in studio</a>

@@ -69,7 +69,7 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
           {carousel && (
             <CarouselPanel
               draftId={draft.id}
-              view={carouselView(carousel.task, carousel.carousel)}
+              view={carouselView(carousel.task, carousel.carousel, carousel.declinedCount)}
               sent={sent}
               images={images}
               downloads={downloads}

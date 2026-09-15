@@ -707,3 +707,24 @@ Also unverified at wrap: the studio Edit text panel (ab0430c) has not been
 used in a browser, and the fork-parity comparison of a local export against
 agentco's images was skipped.
 - **No way to decline a deck** or teach the Producer from the studio.
+
+## 2026-09-15 — Decline a carousel deck
+
+Spec: `docs/superpowers/specs/2026-09-15-decline-deck-design.md`. Denis
+approved the design after two choices: auto-requeue stops after 3 declined
+decks per post (then a manual Make another deck), and decline only before
+Send.
+
+Built on `feature/decline-deck`: migration 0006 (`declined` status,
+`decline_reason`, `declined_at`, no FK), `src/declineDeck.ts` (conditional
+mark first as the double-submit guard, feedback always, rule only when ticked
+and under `MAX_RULES`, requeue under `MAX_DECLINED_DECKS`), `declined` and
+`rethink` states in `carouselView`, and `declinedDeckNote` appended to the
+Producer's carousel prompt from `latestDeclineReason`. Studio has a Decline
+box; a declined studio disables Send.
+
+Verified: 253 unit tests, typecheck, web build, 16 live DB tests after 0006,
+and a production probe of the new queries (a sent deck refuses the decline).
+Not yet verified: a real decline in the browser on production, the queued
+redo actually quoting the reason, and still the Edit text panel and sign in
+round trip from 2026-09-13.
