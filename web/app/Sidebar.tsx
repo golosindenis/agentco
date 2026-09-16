@@ -28,6 +28,9 @@ export function Sidebar({
         <Link href="/activity" className={active === "/activity" ? "side-item on" : "side-item"}>
           Activity
         </Link>
+        <Link href="/accounts" className={active === "/accounts" ? "side-item on" : "side-item"}>
+          Accounts
+        </Link>
       </nav>
 
       {groups.map((group) => (
