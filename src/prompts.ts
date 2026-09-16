@@ -31,4 +31,13 @@ export const TASK_PROMPTS: Record<TaskKind, string> = {
     "commentary.",
   carousel:
     "Turn the approved post below into one carousel deck. Output only the JSON array of slides.",
+  shot_list:
+    "Plan the photos Denis should take for the coming week. The approved angle " +
+    "bank and the seven days with their subjects are below. For each day pick the " +
+    "angle from the bank that fits that day's subject and describe one photo Denis " +
+    "can take himself: the scene, the framing and the orientation. Only real scenes " +
+    "from his own life and work that he can actually photograph. No stock images, no " +
+    "staged client moments, no other people's faces. Output only a JSON array with " +
+    "exactly one object per day, in the given order, each with the keys date, " +
+    "subject, angle and shot, and nothing else.",
 };

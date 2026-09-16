@@ -4,6 +4,7 @@ const ITEMS = [
   { href: "/", label: "Today" },
   { href: "/org", label: "Org" },
   { href: "/activity", label: "Activity" },
+  { href: "/accounts", label: "Accounts" },
 ];
 
 export function BottomNav({ active }: { active: string }) {

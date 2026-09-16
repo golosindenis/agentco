@@ -18,10 +18,13 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-15 (e5557b7, e572e01…cbb7eb1) — agents spawn with skills disabled after
+  the Writer copied a stale vault figure; Meta posting tasks 1-4 of 10 on
+  `feature/meta-posting` (0007 applied), Meta app setup (Task 5) next.
 - 2026-09-15 (feature/decline-deck) — Decline a deck before Send: required
   reason, opt-in rule, requeues until 3 declined decks per post then "needs a
   rethink". Worker quotes the last decline reason. `src/declineDeck.ts` pure
-  and tested; migration 0006 applied. Not yet merged or tried on a real deck.
+  and tested; 0006 applied, merged f79a270 and deployed. Untried on a real deck.
 - 2026-09-13 (d6c8548…938de6f) — Carousel Producer and a studio inside agentco:
   Make carousel → Producer deck (10 word stop scroll hook) → `/carousels/[id]`
   with the vendored fork editor, Edit text, Send, Download all. Also RunAtLoad
@@ -32,10 +35,6 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-12 (121cabc) — a daily_draft now fails loudly when the approved angle
   bank has nothing for the day's subject, instead of improvising. Strategist
   learned the dash rule through a real decline; third bank came back clean.
-- 2026-09-12 (731e74e) — the Marketing department got a content strategy:
-  `src/subjects.ts` rotates the daily draft over Attune / Denis / agentco by
-  weekday with per-subject voice, and The Solution got its own Friday
-  `wholesale_outreach` kind. Scheduler installed and firing.
 ## Hard-Won Rules
 
 - **Agents must not see Denis's personal skills.** The spawned `claude` inherits

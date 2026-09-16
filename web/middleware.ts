@@ -69,6 +69,8 @@ export const config = {
     // reachable without auth. Fixed during Task 3 verification: confirmed
     // with curl that /loginish and /auth/callbackx bypassed the gate (404
     // instead of a redirect to /login) before this change.
-    "/((?!login(?:/|$)|auth/callback(?:/|$)|_next/static(?:/|$)|_next/image(?:/|$)|favicon\\.ico$|manifest\\.webmanifest$|icons/).*)",
+    // api/publish-due is called by pg_cron with no session; it checks
+    // x-cron-secret itself.
+    "/((?!login(?:/|$)|auth/callback(?:/|$)|api/publish-due(?:/|$)|_next/static(?:/|$)|_next/image(?:/|$)|favicon\\.ico$|manifest\\.webmanifest$|icons/).*)",
   ],
 };
