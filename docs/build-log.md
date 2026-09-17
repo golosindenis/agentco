@@ -4,6 +4,99 @@ What exists, why it is shaped this way, and what is unresolved. Written for
 whoever picks this up next, including a future session with no memory of the
 build.
 
+## 2026-09-16/17 — Meta posting Tasks 5-7, both Meta apps, and the vercel.app wall
+
+Tasks 5 and 6 built and merged; Task 7 part built. `feature/meta-posting`
+merged to main (54d2daa) and deployed. Commits: e7b4642 (Task 5), c7981a0
+(Task 6), 284173d (config_id fix and the setup guide rewrite).
+
+### What now exists
+
+- **Task 5.** `src/posting/accounts.ts` maps Facebook Pages to account rows: a
+  Page with no linked Instagram becomes a `not_ready` row carrying the reason,
+  rather than silently missing. `needsThreadsRefresh` for the token window.
+  OAuth connect and callback routes for Meta and Threads, with an httpOnly
+  state cookie compared by `timingSafeEqual` so a callback we did not start is
+  refused. Tokens go straight to Supabase Vault, never to the browser.
+  `/accounts` page listing each connection and its status, linked from the
+  sidebar and the phone bottom nav.
+- **Task 6.** `POST /api/publish-due` guarded by `x-cron-secret`, the
+  middleware matcher widened to let pg_cron through without a session, Threads
+  token refresh, migration 0008 (`set_publish_cron`) applied to production.
+  **Proven working**: `cron.job` shows `publish-due` active on `* * * * *`, and
+  the Vercel logs show ~18 consecutive 60-second firings all returning 200 with
+  `{"claimed":0,"posted":0,"failed":0,"stuck":0,"refreshProblems":[]}`.
+- **Task 7, part built and uncommitted at wrap:** `src/posting/plan.ts`
+  (`planPosts`, 4 tests passing), `web/app/posting/actions.ts`,
+  `web/app/drafts/[id]/PostPanel.tsx`. Still to wire: the draft page itself and
+  `photo_path` through `getDraftForReview` in `src/db.ts`.
+
+### The Meta apps
+
+**Two apps are required.** Ticking the Threads use case greys out every other
+use case: "some use cases can't be combined on the same app". The code already
+assumed this shape, so nothing changed.
+
+- `agentco` — App ID 1082508934255253, Threads app ID 2557878688018641.
+  Threads use case, `threads_content_publish` added, all three callback URLs
+  set, Threads Tester invite accepted.
+- `agentco posting` — App ID 2426912214469584. Both Content management use
+  cases (Instagram, Pages), no business portfolio, App Domains and Website
+  platform set, OAuth redirect URI set, Business Login configuration
+  **932646532764205** created (User access token; System-user unavailable
+  without a portfolio).
+
+Env vars in Vercel production: META_APP_ID, META_APP_SECRET, META_CONFIG_ID,
+THREADS_APP_ID, THREADS_APP_SECRET, PUBLIC_BASE_URL, CRON_SECRET.
+
+### The blocker, and the two wrong turns before it
+
+Connect Meta fails with "The domain of this URL isn't included in the app's
+domains." Two hours went into that message before the cause was found.
+
+- **Wrong turn 1:** App Domains, then the Website platform. Both were genuinely
+  missing and both are genuinely required, but neither was the cause.
+- **Wrong turn 2:** diagnosed as Facebook Login for Business needing `config_id`
+  instead of `scope`, stated with more confidence than the evidence carried.
+  The configuration was created and the route changed — and the dialog failed
+  identically. The change is kept because Business Login does ignore `scope`,
+  but it was not the blocker.
+- **Actual cause:** `vercel.app` is on the Public Suffix List, so Facebook
+  refuses it as an App Domain. Isolated by testing the dialog with the site
+  root as `redirect_uri`: same error, so the path is irrelevant and the domain
+  itself is rejected. Nothing in the Meta dashboard can fix it.
+
+**Threads does not apply that check** — the same redirect_uri reached a Threads
+login screen normally. So Threads can connect today; Facebook and Instagram
+need a custom domain. Denis deferred buying one until he has money
+(2026-09-17), so this is parked, not solved.
+
+### Where Threads got to
+
+The OAuth flow ran end to end and failed at the token exchange with
+`Invalid client_secret`. The Threads app has two different secrets — App
+settings → Basic, and the Threads use case Settings tab — and the code needs
+the latter, since it pairs with the Threads app ID. **The secret was pasted
+into chat in the error text and must be rotated before reuse.** Not yet done.
+`social_accounts` is still empty; no account has ever connected.
+
+### Not verified
+
+Nothing has posted to any platform. `publishDue` has never had a real row to
+claim. The Instagram and Facebook publishers have never met the real API. The
+Business Login configuration's assets and permissions were never read back, so
+whether `instagram_content_publish` is actually in it is unknown.
+
+### Also
+
+`docs/meta-app-setup.md` was rewritten from what actually happened rather than
+from Meta's docs; the first version was wrong about the required uninstall and
+delete callbacks, App Domains, the Website platform and the configuration.
+One test run showed 1 file failed and 16 skipped in 5s instead of 21s — the
+live-DB suite not getting credentials. Three later runs were 314/314.
+
+---
+
 ## Status as of 2026-09-06
 
 Working, in production, and **rejected as a product structure by Denis on

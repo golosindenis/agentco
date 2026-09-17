@@ -18,6 +18,11 @@ instructions so the correction sticks. **Nothing publishes.**
 <!-- Keep to FIVE lines. Adding one means deleting the oldest. Story goes in
      docs/build-log.md, which is read on demand and never loaded into context. -->
 
+- 2026-09-17 (54d2daa, 284173d) — Meta posting Tasks 5-6 merged and live: OAuth
+  connect, `/accounts`, and a pg_cron `publish-due` route proven firing every
+  minute. **Blocked:** Facebook rejects `*.vercel.app` (Public Suffix List), so
+  Instagram and Facebook need a custom domain; Threads is unaffected. Task 7
+  part built.
 - 2026-09-15 (e5557b7, e572e01…cbb7eb1) — agents spawn with skills disabled after
   the Writer copied a stale vault figure; Meta posting tasks 1-4 of 10 on
   `feature/meta-posting` (0007 applied), Meta app setup (Task 5) next.
@@ -32,10 +37,21 @@ instructions so the correction sticks. **Nothing publishes.**
 - 2026-09-12 (cecd5dd) — per-angle verdicts on an angle bank: untick to drop,
   survivors renumbered. A reason always records; a rule appends only when asked.
   `src/angles.ts` is pure and tested; `ladder.ts` unchanged.
-- 2026-09-12 (121cabc) — a daily_draft now fails loudly when the approved angle
-  bank has nothing for the day's subject, instead of improvising. Strategist
-  learned the dash rule through a real decline; third bank came back clean.
 ## Hard-Won Rules
+
+- **Facebook Login refuses any `*.vercel.app` address.** `vercel.app` is on the
+  Public Suffix List, so it cannot be an App Domain, and the dialog fails with
+  "The domain of this URL isn't included in the app's domains" no matter what
+  the dashboard says. Nothing in App Domains, the Website platform or a Business
+  Login configuration fixes it; only a custom domain does. Threads does not
+  apply this check. Isolated on 2026-09-17 by retrying the dialog with the site
+  root as `redirect_uri`: identical error, so the path was never the issue.
+
+- **The Threads app has two different secrets.** App settings → Basic → App
+  secret is NOT the one the Threads API wants; use the Threads app secret on the
+  Access the Threads API use case's Settings tab, because it pairs with the
+  Threads app ID. Pairing the two wrongly gives `Invalid client_secret` with a
+  well-formed value, which reads like a typo and is not.
 
 - **Agents must not see Denis's personal skills.** The spawned `claude` inherits
   HOME and so loaded `~/.claude/skills`; the Writer copied a stale "15 women"

@@ -6,3 +6,4 @@ logs/*.log
 
 # Vercel CLI link + pulled env (contains the service-role key)
 .vercel
+.DS_Store
